@@ -4,10 +4,10 @@ from app.routes.analyze import router as analyze_router
 
 app = FastAPI(title="Repo Analyzer")
 
+# Allow all origins to prevent CORS errors during development
 app.add_middleware(
     CORSMiddleware,
-    # Change ["*"] to include your specific frontend URL
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], 
+    allow_origins=["*"],  # THIS MUST BE "*" FOR NOW
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
