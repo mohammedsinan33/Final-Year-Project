@@ -1,11 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes.analyze import router as analyze_router
-from app.routes.proctor import router as proctor_router  # Import the new router
+from app.routes.proctor import router as proctor_router
+from app.routes.interview import router as interview_router
 
 app = FastAPI(title="Repo Analyzer")
 
-# Allow all origins to prevent CORS errors during development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -14,5 +14,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(analyze_router)
-app.include_router(proctor_router, prefix="/proctor", tags=["proctor"]) # Register it
+app.include_router(analyze_router) # No prefix here!
+app.include_router(proctor_router, prefix="/proctor", tags=["proctor"])
+app.include_router(interview_router, prefix="/interview", tags=["interview"])
