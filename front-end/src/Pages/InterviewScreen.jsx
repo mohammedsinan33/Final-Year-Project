@@ -1,120 +1,127 @@
 import { useEffect, useRef, useState } from "react";
-import VedioScreen from "../Components/VedioScreen";
+import { useNavigate } from "react-router-dom"; 
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 const InterviewScreen = () => {
-  const cameraVideoRef = useRef(null);
-  const screenVideoRef = useRef(null);
-  
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [isScreenActive, setIsScreenActive] = useState(false);
+  const navigate = useNavigate();
+  const cameraRef = useRef(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [malpractices, setMalpractices] = useState([]);
 
-  // 1. Initialize Camera
+  // Mock AI Interviewer Image (Replace with video later)
+  const aiAvatar = "https://img.freepik.com/free-vector/chatbot-artificial-intelligence-concept_23-2148180470.jpg"; 
+
+  // 1. Start Camera & Screen Share immediately (assuming they passed tester)
   useEffect(() => {
-    const startCamera = async () => {
-      try {
-        console.log("Requesting camera...");
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: true, 
-            audio: false 
-        });
+    const initSession = async () => {
+        const camStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        if (cameraRef.current) cameraRef.current.srcObject = camStream;
         
-        console.log("Camera access granted");
-        
-        if (cameraVideoRef.current) {
-          cameraVideoRef.current.srcObject = stream;
-          setIsCameraActive(true);
+        // Force Screen Share again for the actual interview
+        try {
+            await navigator.mediaDevices.getDisplayMedia({ video: true });
+        } catch(e) {
+            alert("Screen share is MANDATORY. Redirecting...");
+            navigate('/');
         }
-      } catch (err) {
-        console.error("Error accessing camera:", err);
-        alert("Could not access camera. Please allow permissions.");
-      }
     };
-
-    startCamera();
-
+    initSession();
+    
+    // Cleanup
     return () => {
-      // Cleanup tracks
-      if (cameraVideoRef.current && cameraVideoRef.current.srcObject) {
-         const tracks = cameraVideoRef.current.srcObject.getTracks();
-         tracks.forEach(track => track.stop());
-      }
+        // Stop tracks logic...
     };
-  }, []); // Run once on mount
+  }, [navigate]);
 
-  // 2. Function to Start Screen Share
-  const handleStartScreenShare = async () => {
-    try {
-      console.log("Requesting screen share...");
-      const stream = await navigator.mediaDevices.getDisplayMedia({ 
-          video: true,
-          audio: false
-      });
-      
-      console.log("Screen share granted");
+  // 2. Proctoring Loop (Every 5 seconds)
+  useEffect(() => {
+    const interval = setInterval(async () => {
+       if (cameraRef.current) {
+           const canvas = document.createElement('canvas');
+           canvas.width = 640;
+           canvas.height = 480;
+           canvas.getContext('2d').drawImage(cameraRef.current, 0, 0);
+           
+           canvas.toBlob(async (blob) => {
+               if(!blob) return;
+               const formData = new FormData();
+               formData.append('file', blob, 'capture.jpg');
 
-      if (screenVideoRef.current) {
-        screenVideoRef.current.srcObject = stream;
-        setIsScreenActive(true);
-      }
-      
-      // Handle "Stop Sharing" native browser button
-      stream.getVideoTracks()[0].onended = () => {
-        setIsScreenActive(false);
-        if (screenVideoRef.current) {
-            screenVideoRef.current.srcObject = null;
-        }
-      };
-      
-    } catch (err) {
-      console.error("Error starting screen share:", err);
-    }
+               try {
+                   const res = await fetch(`${API_BASE_URL}/proctor/monitor`, { method: 'POST', body: formData });
+                   const data = await res.json();
+                   
+                   if (data.status === 'alert') {
+                       const newAlert = { time: new Date().toLocaleTimeString(), issue: data.issue };
+                       setMalpractices(prev => [...prev, newAlert]);
+                       
+                       // Store in localStorage for report page
+                       const existing = JSON.parse(localStorage.getItem('proctorReport') || "[]");
+                       existing.push(newAlert);
+                       localStorage.setItem('proctorReport', JSON.stringify(existing));
+                   }
+               } catch (e) {
+                   console.error("Proctor loop failed", e);
+               }
+           }, 'image/jpeg');
+       }
+    }, 5000); 
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const endInterview = () => {
+      navigate('/proctored-report');
   };
 
   return (
-    <div className="p-6 min-h-screen bg-gray-100 font-sans">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Technical Interview</h1>
-        <p className="text-gray-600">Session ID: #882103</p>
-      </header>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-[1400px] mx-auto">
-        
-        {/* Card 1: Interviewer (Blank for now) */}
-        <div className="min-h-[300px]">
-            <VedioScreen 
-                label="Interviewer (AI)" 
-                isBlank={true} 
-            />
-        </div>
-
-        {/* Card 2: User Camera */}
-        <div className="min-h-[300px]">
-            <VedioScreen 
-                videoRef={cameraVideoRef} 
-                label="Your Camera" 
-                isBlank={!isCameraActive} 
-            />
-        </div>
-
-        {/* Card 3: Screen Share */}
-        <div className="min-h-[300px] flex flex-col gap-4">
-            <VedioScreen 
-                videoRef={screenVideoRef} 
-                label="Your Screen" 
-                isBlank={!isScreenActive} 
-            />
-            
-            {!isScreenActive && (
-                <button 
-                    onClick={handleStartScreenShare}
-                    className="py-3 px-5 bg-blue-600 text-white border-0 rounded-lg font-semibold cursor-pointer transition-colors hover:bg-blue-700 w-full"
-                >
-                    Start Screen Share
-                </button>
-            )}
-        </div>
-
+    <div className="relative h-screen bg-gray-900 overflow-hidden flex flex-col">
+      {/* Header */}
+      <div className="absolute top-0 w-full z-10 bg-gradient-to-b from-black/70 to-transparent p-4 flex justify-between items-center text-white">
+          <h1 className="text-xl font-bold">AI Interview Session</h1>
+          <button onClick={endInterview} className="bg-red-600 px-4 py-2 rounded hover:bg-red-700">End Interview</button>
       </div>
+
+      {/* Main Content */}
+      <div className={`flex-1 flex ${isExpanded ? 'flex-row' : 'flex-col'} h-full transition-all duration-300`}>
+          
+          {/* 1. AI Interviewer Area */}
+          <div className={`relative ${isExpanded ? 'w-1/2' : 'w-full'} h-full bg-black flex items-center justify-center transition-all`}>
+              <img src={aiAvatar} alt="AI" className="max-h-full max-w-full opacity-80" />
+              <div className="absolute bottom-10 text-white text-center w-full">
+                  <p className="bg-black/50 inline-block px-4 py-2 rounded-full">AI is listening...</p>
+              </div>
+          </div>
+
+          {/* 2. User Video Area */}
+          <div 
+            className={`
+                transition-all duration-300 bg-gray-800 relative
+                ${isExpanded 
+                    ? 'w-1/2 h-full border-l border-gray-700'  // Split Mode
+                    : 'absolute bottom-4 right-4 w-64 h-48 rounded-xl shadow-2xl border-2 border-white/20 overflow-hidden hover:scale-105' // Pip Mode
+                }
+            `}
+          >
+              <video ref={cameraRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+              
+              <button 
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="absolute top-2 right-2 bg-black/60 text-white p-1 rounded hover:bg-black/80 text-xs z-20"
+              >
+                  {isExpanded ? 'Minimize' : 'Expand'}
+              </button>
+          </div>
+      </div>
+
+      {/* Real-time Alerts */}
+      {malpractices.length > 0 && (
+          <div className="absolute bottom-4 left-4 bg-red-500/90 text-white p-3 rounded-lg max-w-xs animate-bounce">
+              <strong className="block text-sm">⚠️ Warning Issued</strong>
+              <span className="text-xs">{malpractices[malpractices.length-1].issue}</span>
+          </div>
+      )}
     </div>
   );
 };
