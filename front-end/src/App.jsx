@@ -3,6 +3,7 @@ import AnalyzerPage from "./Components/AnalyzerPage";
 import InterviewScreen from "./Pages/InterviewScreen";
 import InterviewTester from "./Pages/InterviewTester";
 import ProctoredReport from "./Pages/proctoredreport";
+import Finalrport from "./Pages/finalrport";
 import "./App.css";
 
 const App = () => {
@@ -14,6 +15,7 @@ const App = () => {
           <Route path="/interview" element={<InterviewScreen />} />
           <Route path="/tester" element={<InterviewTester />} />
           <Route path="/proctored-report" element={<ProctoredReport />} />
+          <Route path="/finalrport" element={<Finalrport />} />
           <Route path="*" element={<AnalyzerPage />} />
         </Routes>
       </div>

@@ -62,6 +62,7 @@ const InterviewTester = () => {
             stream.getTracks().forEach(t => t.stop());
 
             setSteps(prev => ({ ...prev, screen: { status: 'success', msg: 'Screen sharing works' } }));
+            localStorage.setItem("screenShareChecked", "true");
             return true;
         } catch (e) {
              setSteps(prev => ({ ...prev, screen: { status: 'fail', msg: 'Screen share cancelled/failed' } }));
@@ -125,6 +126,7 @@ const InterviewTester = () => {
 
 
     const runTests = async () => {
+        localStorage.removeItem("screenShareChecked");
         if (await checkInternet()) {
             setCurrentStep(1);
             if (await checkMicrophone()) {

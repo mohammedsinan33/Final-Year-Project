@@ -1,13 +1,73 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import os
 import requests
 from dotenv import load_dotenv
+from app.schemas import SessionContextUpsertRequest, InterviewTurnIngestRequest
 
 load_dotenv()
 
 router = APIRouter()
+
+SESSION_STORE: Dict[str, Dict[str, Any]] = {}
+
+def _get_or_create_session(session_id: str) -> Dict[str, Any]:
+    if session_id not in SESSION_STORE:
+        SESSION_STORE[session_id] = {
+            "transcript": [],
+            "qa_pairs": [],
+            "proctor_events": [],
+            "repo_analysis": {},
+            "resume_analysis": {},
+            "job_description": "",
+            "skills_needed": "",
+        }
+    return SESSION_STORE[session_id]
+
+def upsert_session_context(
+    session_id: str,
+    repo_analysis: Optional[Dict[str, Any]] = None,
+    resume_analysis: Optional[Dict[str, Any]] = None,
+    job_description: Optional[str] = "",
+    skills_needed: Optional[str] = "",
+) -> Dict[str, Any]:
+    s = _get_or_create_session(session_id)
+    if repo_analysis is not None:
+        s["repo_analysis"] = repo_analysis
+    if resume_analysis is not None:
+        s["resume_analysis"] = resume_analysis
+    if job_description is not None:
+        s["job_description"] = job_description
+    if skills_needed is not None:
+        s["skills_needed"] = skills_needed
+    return s
+
+def record_interview_turn(session_id: str, role: str, text: str) -> Dict[str, Any]:
+    s = _get_or_create_session(session_id)
+    role_clean = (role or "").strip().lower()
+    text_clean = (text or "").strip()
+    if not text_clean:
+        return s
+
+    s["transcript"].append({"role": role_clean, "text": text_clean})
+
+    if role_clean in ("agent", "ai", "assistant"):
+        s["_last_question"] = text_clean
+    elif role_clean in ("candidate", "user", "human"):
+        last_q = s.get("_last_question")
+        if last_q:
+            s["qa_pairs"].append({"question": last_q, "answer": text_clean})
+            s["_last_question"] = None
+    return s
+
+def record_proctor_event(session_id: str, issue: str, time: Optional[str] = None) -> Dict[str, Any]:
+    s = _get_or_create_session(session_id)
+    s["proctor_events"].append({"time": time, "issue": issue})
+    return s
+
+def get_session_data(session_id: str) -> Dict[str, Any]:
+    return _get_or_create_session(session_id)
 
 class InterviewContextRequest(BaseModel):
     repo_analysis: Optional[Dict[str, Any]] = None
@@ -114,7 +174,7 @@ Be professional but friendly. Each question should be asked ONE AT A TIME.
                     "prompt": {
                         "prompt": full_prompt
                     },
-                    "first_message": "Hello! I'm Sarah, your technical interviewer. I've reviewed your project and resume. Let's start - could you briefly introduce yourself?"
+                    "first_message": "Hello! I'm Sinan, your technical interviewer. I've reviewed your project and resume. Let's start - could you briefly introduce yourself?"
                 }
             }
         }
@@ -138,3 +198,23 @@ Be professional but friendly. Each question should be asked ONE AT A TIME.
         "api_key": api_key,
         "success": update_success
     }
+
+@router.post("/session/context")
+async def save_session_context(payload: SessionContextUpsertRequest):
+    session = upsert_session_context(
+        session_id=payload.session_id,
+        repo_analysis=payload.repo_analysis,
+        resume_analysis=payload.resume_analysis,
+        job_description=payload.job_description,
+        skills_needed=payload.skills_needed,
+    )
+    return {"ok": True, "session_id": payload.session_id, "has_repo": bool(session.get("repo_analysis")), "has_resume": bool(session.get("resume_analysis"))}
+
+@router.post("/session/turn")
+async def save_interview_turn(payload: InterviewTurnIngestRequest):
+    session = record_interview_turn(payload.session_id, payload.role, payload.text)
+    return {"ok": True, "session_id": payload.session_id, "transcript_count": len(session["transcript"]), "qa_count": len(session["qa_pairs"])}
+
+@router.get("/session/{session_id}")
+async def read_session_data(session_id: str):
+    return get_session_data(session_id)

@@ -54,6 +54,46 @@ Resume text:
 {resume_text}
 """
 
+FINAL_REPORT_PROMPT_TEMPLATE = """
+You are an expert technical interview evaluator.
+Return ONLY strict JSON.
+
+Evaluate candidate using:
+1) interview Q/A quality and correctness
+2) communication quality
+3) fit with job description and required skills
+4) project/resume evidence
+5) proctoring behavior
+
+Proctoring policy:
+- Compute proctor_issues_percent from interview behavior.
+- If proctor_issues_percent <= 20, set proctoring_status = "acceptable".
+- If proctor_issues_percent > 20, set proctoring_status = "concern".
+- Do not reject only for small proctor noise <= 20%.
+
+Required JSON:
+{
+  "overall_score": 0-100,
+  "qa_match_score": 0-100,
+  "technical_score": 0-100,
+  "communication_score": 0-100,
+  "proctoring_score": 0-100,
+  "proctor_issues_percent": 0-100,
+  "proctoring_status": "acceptable" | "concern",
+  "suitable": true | false,
+  "suitability_level": "Strong Yes" | "Yes" | "Borderline" | "No",
+  "strengths": [string],
+  "improvement_areas": [string],
+  "matched_skills": [string],
+  "missing_skills": [string],
+  "final_summary": string
+}
+
+Input:
+{payload_json}
+"""
+
+
 def _extract_json(text: str) -> Dict[str, Any]:
     text = text.strip()
     if text.startswith("```json"):
@@ -118,3 +158,21 @@ async def analyze_resume_with_llm(
         return _extract_json(response.text)
     except Exception as e:
         raise RuntimeError(f"LLM request failed: {str(e)}")
+
+async def generate_final_report_with_llm(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not LLM_API_KEY:
+        raise RuntimeError("LLM_API_KEY is not set")
+
+    genai.configure(api_key=LLM_API_KEY)
+    model = genai.GenerativeModel(LLM_MODEL)
+
+    prompt = (
+        f"{SYSTEM_PROMPT}\n\n"
+        f"{FINAL_REPORT_PROMPT_TEMPLATE.format(payload_json=json.dumps(payload, ensure_ascii=False))}"
+    )
+
+    try:
+        response = await model.generate_content_async(prompt)
+        return _extract_json(response.text)
+    except Exception as e:
+        raise RuntimeError(f"Final report LLM request failed: {str(e)}")

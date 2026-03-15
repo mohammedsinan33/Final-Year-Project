@@ -2,8 +2,9 @@ import sys
 import os
 import cv2
 import numpy as np
-from fastapi import APIRouter, UploadFile, File
-import shutil
+from fastapi import APIRouter, UploadFile, File, Form
+from typing import Optional
+from app.routes.interview import record_proctor_event
 
 # Add the Proctoring-AI-master folder to Python path so we can import its modules
 # Adjust this path if your folder name is different
@@ -16,7 +17,7 @@ try:
     # Note: You might need to refactor these files to not run code on import!
     from person_and_phone import process_frame_for_proctoring
     YOLO_AVAILABLE = True
-except ImportError as e:
+except Exception as e:
     print(f"WARNING: Could not import Proctoring modules (YOLO): {e}")
     YOLO_AVAILABLE = False
     process_frame_for_proctoring = None
@@ -54,7 +55,7 @@ async def initial_check(file: UploadFile = File(...)):
         return {"status": "error", "detail": str(e)}
 
 @router.post("/monitor")
-async def monitor(file: UploadFile = File(...)):
+async def monitor(file: UploadFile = File(...), session_id: Optional[str] = Form(None)):
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -65,7 +66,12 @@ async def monitor(file: UploadFile = File(...)):
     # 1. Detection Logic
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+    faces = face_cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.05,
+        minNeighbors=5,
+        minSize=(60, 60),
+    )
     
     issues = []
 
@@ -90,6 +96,13 @@ async def monitor(file: UploadFile = File(...)):
             print(f"YOLO Inference Error: {e}")
 
     if issues:
-        return {"status": "alert", "issue": ", ".join(issues)}
-    
-    return {"status": "ok"}
+        issue_text = ", ".join(issues)
+        if session_id:
+            record_proctor_event(session_id=session_id, issue=issue_text)
+        return {
+            "status": "alert",
+            "issue": issue_text,
+            "yolo_enabled": YOLO_AVAILABLE
+        }
+
+    return {"status": "ok", "yolo_enabled": YOLO_AVAILABLE}

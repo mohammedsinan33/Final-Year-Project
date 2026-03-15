@@ -8,188 +8,267 @@ const InterviewScreen = () => {
   const navigate = useNavigate();
   const cameraRef = useRef(null);
   const conversationRef = useRef(null);
+
+  const sessionIdRef = useRef(`sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+  const reportKeyRef = useRef(`proctorReport:${sessionIdRef.current}`);
+
   const [isExpanded, setIsExpanded] = useState(false);
   const [malpractices, setMalpractices] = useState([]);
   const [isConnecting, setIsConnecting] = useState(true);
   const [isInterviewActive, setIsInterviewActive] = useState(false);
   const [transcript, setTranscript] = useState([]);
+  const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
+  const [isFsRequired, setIsFsRequired] = useState(true);
+  const [hasStarted, setHasStarted] = useState(false);
 
   const aiAvatar = "https://img.freepik.com/free-vector/chatbot-artificial-intelligence-concept_23-2148180470.jpg";
 
   useEffect(() => {
+    localStorage.setItem("activeProctorSessionId", sessionIdRef.current);
+    localStorage.setItem(reportKeyRef.current, JSON.stringify([]));
+  }, []);
+
+  const endInterview = async (reason = "") => {
+    if (conversationRef.current) {
+      try {
+        await conversationRef.current.endSession();
+      } catch {
+        console.log("Session already closed");
+      }
+      conversationRef.current = null;
+    }
+
+    const finalAlerts = [...malpractices];
+    if (reason) {
+      finalAlerts.push({
+        time: new Date().toLocaleTimeString(),
+        issue: reason,
+      });
+    }
+
+    localStorage.setItem(reportKeyRef.current, JSON.stringify(finalAlerts));
+    localStorage.setItem("lastProctorSessionId", sessionIdRef.current);
+
+    navigate(`/finalrport?sessionId=${encodeURIComponent(sessionIdRef.current)}`);
+  };
+
+  const enterFullscreenAndStart = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      }
+      setIsFullscreen(true);
+      setIsFsRequired(false);
+      setHasStarted(true);
+    } catch (e) {
+      alert("Fullscreen is mandatory to start the interview.");
+    }
+  };
+
+  useEffect(() => {
+    const onFsChange = () => {
+      const inFs = !!document.fullscreenElement;
+      setIsFullscreen(inFs);
+
+      // If interview has begun and user exits fullscreen, end immediately.
+      if (hasStarted && !inFs) {
+        endInterview("Candidate exited fullscreen during interview");
+      }
+    };
+
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, [hasStarted]);
+
+  // Start interview services only after fullscreen is accepted.
+  useEffect(() => {
+    if (!hasStarted) return;
+
     let isMounted = true;
-    
+
     const initInterview = async () => {
       try {
-        console.log("🔄 Preparing interview context...");
-        
-        const contextData = JSON.parse(localStorage.getItem('interviewContext') || '{}');
-        
-        // Backend updates the agent with the custom prompt
+        const contextData = JSON.parse(localStorage.getItem("interviewContext") || "{}");
         const response = await fetch(`${API_BASE_URL}/interview/prepare-interview`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(contextData)
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(contextData),
         });
-        
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Backend Error (${response.status}): ${errorText}`);
-        }
-        
-        const { agent_id, success } = await response.json();
-        
-        console.log("✅ Agent prepared:", agent_id);
-        console.log("Prompt update success:", success);
-        
-        if (!agent_id) throw new Error("Agent ID missing");
-        if (!isMounted) return;
-        
-        // Give ElevenLabs a moment to process the agent update
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        console.log("🎤 Starting ElevenLabs session...");
 
-        // Simple connection - no overrides (agent is already configured)
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Backend Error (${response.status}): ${errorText}`);
+        }
+
+        const { agent_id } = await response.json();
+        if (!agent_id || !isMounted) return;
+
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
         const conversation = await Conversation.startSession({
           agentId: agent_id,
-          
           onConnect: () => {
-            console.log("✅ Connected to ElevenLabs");
             if (isMounted) {
               setIsConnecting(false);
               setIsInterviewActive(true);
             }
           },
-          
           onDisconnect: () => {
-            console.log("❌ Disconnected");
-            if (isMounted) {
-              setIsInterviewActive(false);
-            }
+            if (isMounted) setIsInterviewActive(false);
           },
+
           
           onMessage: (message) => {
-            console.log("📩 Message:", message);
             if (!isMounted) return;
-            
-            // Capture agent messages
-            if (message.source === "ai" || message.role === "assistant") {
-              setTranscript(prev => [...prev, { role: 'agent', text: message.message }]);
+
+            const roleRaw = (message?.source || message?.role || "").toLowerCase();
+            const text = (message?.message || "").trim();
+            if (!text) return;
+
+            const role =
+              roleRaw === "ai" || roleRaw === "assistant" ? "agent" : "candidate";
+
+            setTranscript((prev) => {
+              const next = [...prev, { role, text }];
+              localStorage.setItem(`interviewTranscript:${sessionIdRef.current}`, JSON.stringify(next));
+              return next;
+            });
+
+            fetch(`${API_BASE_URL}/interview/session/turn`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                session_id: sessionIdRef.current,
+                role,
+                text,
+              }),
+            }).catch(() => {});
+          },
+          onError: (error) => {
+            const errorStr = typeof error === "string" ? error : error?.message || "";
+            if (!errorStr.toLowerCase().includes("closing")) {
+              alert("Interview error: " + errorStr);
             }
           },
-          
-          onError: (error) => {
-            console.error("⚠️ Error:", error);
-            if (!isMounted) return;
-            
-            const errorStr = typeof error === 'string' ? error : error?.message || '';
-            if (errorStr.toLowerCase().includes('closing')) return;
-            
-            alert("Interview error: " + errorStr);
-          }
         });
-        
-        console.log("✅ Session created");
-        
-        if (isMounted) {
-          conversationRef.current = conversation;
-        } else {
-          conversation.endSession().catch(() => {});
-        }
-        
+
+        if (isMounted) conversationRef.current = conversation;
       } catch (error) {
-        console.error("💥 Failed:", error);
-        if (isMounted) {
-          alert("Failed to start interview: " + error.message);
-        }
+        if (isMounted) alert("Failed to start interview: " + error.message);
       }
     };
-    
+
     initInterview();
-    
+
     return () => {
-      console.log("🧹 Cleanup");
       isMounted = false;
       if (conversationRef.current) {
         conversationRef.current.endSession().catch(() => {});
         conversationRef.current = null;
       }
     };
-  }, []);
+  }, [hasStarted]);
 
   useEffect(() => {
+    if (!hasStarted) return;
+
     const initCamera = async () => {
+      const screenChecked = localStorage.getItem("screenShareChecked") === "true";
+      if (!screenChecked) {
+        alert("Please complete system check first.");
+        navigate("/tester");
+        return;
+      }
+
+      // consume once so user can't skip tester on future sessions
+      localStorage.removeItem("screenShareChecked");
+
       try {
         const camStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         if (cameraRef.current) cameraRef.current.srcObject = camStream;
-        await navigator.mediaDevices.getDisplayMedia({ video: true });
-      } catch(e) {
-        alert("Camera/Screen share is MANDATORY");
+        // removed: await navigator.mediaDevices.getDisplayMedia({ video: true });
+      } catch {
+        alert("Camera/Microphone access is MANDATORY");
       }
     };
-    initCamera();
-  }, []);
 
+    initCamera();
+  }, [hasStarted, navigate]);
+
+  // Keep your existing proctor loop useEffect, but also guard with hasStarted.
+
+  // ADD this missing monitor loop useEffect
   useEffect(() => {
+    if (!hasStarted) return;
+
     const interval = setInterval(async () => {
-      if (cameraRef.current) {
-        const canvas = document.createElement('canvas');
-        canvas.width = 640;
-        canvas.height = 480;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-            ctx.drawImage(cameraRef.current, 0, 0);
-            canvas.toBlob(async (blob) => {
-              if(!blob) return;
-              const formData = new FormData();
-              formData.append('file', blob, 'capture.jpg');
-    
-              try {
-                const res = await fetch(`${API_BASE_URL}/proctor/monitor`, { method: 'POST', body: formData });
-                const data = await res.json();
-                
-                if (data.status === 'alert') {
-                  const newAlert = { time: new Date().toLocaleTimeString(), issue: data.issue };
-                  setMalpractices(prev => [...prev, newAlert]);
-                  
-                  const existing = JSON.parse(localStorage.getItem('proctorReport') || "[]");
-                  existing.push(newAlert);
-                  localStorage.setItem('proctorReport', JSON.stringify(existing));
-                }
-              } catch (e) {
-                console.error("Proctor loop failed", e);
-              }
-            }, 'image/jpeg');
+      if (!cameraRef.current || !cameraRef.current.srcObject) return;
+
+      const video = cameraRef.current;
+      if (video.videoWidth === 0 || video.videoHeight === 0) return;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 640;
+      canvas.height = 480;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const formData = new FormData();
+        formData.append("file", blob, "capture.jpg");
+        formData.append("session_id", sessionIdRef.current);
+
+        try {
+          const res = await fetch(`${API_BASE_URL}/proctor/monitor`, {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!res.ok) return;
+          const data = await res.json();
+
+          if (data.status === "alert") {
+            const newAlert = {
+              time: new Date().toLocaleTimeString(),
+              issue: data.issue,
+            };
+
+            setMalpractices((prev) => {
+              const next = [...prev, newAlert];
+              localStorage.setItem(reportKeyRef.current, JSON.stringify(next));
+              return next;
+            });
+          }
+        } catch (e) {
+          console.error("Proctor monitor failed:", e);
         }
-      }
-    }, 5000);
+      }, "image/jpeg", 0.8);
+    }, 4000);
 
     return () => clearInterval(interval);
-  }, []);
-
-  const endInterview = async () => {
-    if (conversationRef.current) {
-      try {
-        await conversationRef.current.endSession();
-      } catch (err) {
-        console.log("Session already closed");
-      }
-      conversationRef.current = null;
-    }
-    navigate('/proctored-report');
-  };
+  }, [hasStarted]);
 
   return (
     <div className="relative h-screen bg-gray-900 overflow-hidden flex flex-col">
-      <div className="absolute top-0 w-full z-10 bg-gradient-to-b from-black/70 to-transparent p-4 flex justify-between items-center text-white">
-        <h1 className="text-xl font-bold">AI Interview Session</h1>
-        <div className="flex items-center gap-4">
-          {isConnecting && <span className="text-yellow-400 animate-pulse">● Connecting...</span>}
-          {isInterviewActive && <span className="text-green-400">● Live</span>}
-          <button onClick={endInterview} className="bg-red-600 px-4 py-2 rounded hover:bg-red-700 cursor-pointer">End Interview</button>
+      {isFsRequired && (
+        <div className="absolute inset-0 z-50 bg-black/95 flex items-center justify-center p-6">
+          <div className="max-w-lg w-full bg-gray-800 text-white rounded-xl p-6 text-center">
+            <h2 className="text-2xl font-bold mb-3">Fullscreen Required</h2>
+            <p className="text-sm text-gray-300 mb-6">
+              You must stay in fullscreen during the interview. Exiting fullscreen will end the session.
+            </p>
+            <button
+              onClick={enterFullscreenAndStart}
+              className="bg-blue-600 px-5 py-3 rounded hover:bg-blue-700"
+            >
+              Enter Fullscreen and Start
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className={`flex-1 flex ${isExpanded ? 'flex-row' : 'flex-col'} h-full transition-all duration-300`}>
         <div className={`relative ${isExpanded ? 'w-1/2' : 'w-full'} h-full bg-black flex items-center justify-center transition-all`}>
@@ -225,6 +304,18 @@ const InterviewScreen = () => {
           <span className="text-xs">{malpractices[malpractices.length-1].issue}</span>
         </div>
       )}
+
+      {hasStarted && (
+        <div className="absolute top-4 right-4 z-40">
+          <button
+            onClick={() => endInterview()}
+            className="bg-red-600 px-4 py-2 rounded text-white font-semibold hover:bg-red-700 cursor-pointer"
+          >
+            End Interview
+          </button>
+        </div>
+      )}
+
     </div>
   );
 };
