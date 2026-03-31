@@ -1,0 +1,412 @@
+import { requireSupabase } from "../lib/supabaseClient";
+
+// Custom auth via Supabase Postgres RPC (no confirmation emails).
+// You must create the SQL tables + functions in Supabase:
+// - public.app_users (stores bcrypt hash)
+// - public.app_sessions (stores session token)
+// - public.jobseeker_preferences (prefs keyed by user_id)
+// - RPC functions: app_register, app_login, app_get_user, app_logout,
+//                  app_prefs_get, app_prefs_upsert
+
+const SESSION_KEY = "app_session_token";
+
+const listeners = new Set();
+function notify(user) {
+  listeners.forEach((cb) => {
+    try {
+      cb(user);
+    } catch {
+      // ignore
+    }
+  });
+}
+
+export function getSessionToken() {
+  try {
+    return localStorage.getItem(SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function setSessionToken(token) {
+  try {
+    if (!token) localStorage.removeItem(SESSION_KEY);
+    else localStorage.setItem(SESSION_KEY, token);
+  } catch {
+    // ignore
+  }
+}
+
+function mapUser(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    fullName: row.full_name,
+  };
+}
+
+export async function getCurrentUser() {
+  const token = getSessionToken();
+  if (!token) return null;
+
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.rpc("app_get_user", {
+    p_token: token,
+  });
+  if (error) {
+    setSessionToken(null);
+    return null;
+  }
+
+  return mapUser(data);
+}
+
+export function onAuthStateChange(callback) {
+  listeners.add(callback);
+
+  // Cross-tab sync
+  function onStorage(e) {
+    if (e.key !== SESSION_KEY) return;
+    (async () => {
+      const user = await getCurrentUser();
+      callback(user);
+    })();
+  }
+
+  window.addEventListener("storage", onStorage);
+
+  return () => {
+    listeners.delete(callback);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+export async function login({ email, password }) {
+  const supabase = requireSupabase();
+
+  const { data, error } = await supabase.rpc("app_login", {
+    p_email: String(email || "").trim().toLowerCase(),
+    p_password: String(password || ""),
+  });
+
+  if (error) throw error;
+  if (!data?.session_token || !data?.user) throw new Error("Login failed.");
+
+  setSessionToken(data.session_token);
+  const user = mapUser(data.user);
+  notify(user);
+  return user;
+}
+
+export async function register({ email, password, role, fullName }) {
+  const normalizedFullName = String(fullName || "").trim();
+  if (!normalizedFullName) throw new Error("Full name is required.");
+  if (role !== "recruiter" && role !== "jobseeker") throw new Error("Please select an account type.");
+
+  const supabase = requireSupabase();
+
+  const { data, error } = await supabase.rpc("app_register", {
+    p_email: String(email || "").trim().toLowerCase(),
+    p_password: String(password || ""),
+    p_full_name: normalizedFullName,
+    p_role: role,
+  });
+
+  if (error) throw error;
+  if (!data?.session_token || !data?.user) throw new Error("Registration failed.");
+
+  setSessionToken(data.session_token);
+  const user = mapUser(data.user);
+  notify(user);
+  return user;
+}
+
+export async function logout() {
+  const token = getSessionToken();
+  setSessionToken(null);
+
+  const supabase = requireSupabase();
+  if (token) {
+    await supabase.rpc("app_logout", { p_token: token });
+  }
+
+  notify(null);
+}
+
+// --- Job seeker preferences via token RPC
+
+export async function getJobSeekerPreferences(userId) {
+  // userId is unused in custom auth mode; kept for compatibility with the UI.
+  const token = getSessionToken();
+  if (!token) return null;
+
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.rpc("app_prefs_get", {
+    p_token: token,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function hasJobSeekerPreferences(userId) {
+  const prefs = await getJobSeekerPreferences(userId);
+  return Boolean(prefs);
+}
+
+export async function saveJobSeekerPreferences(userId, prefs) {
+  const token = getSessionToken();
+  if (!token) throw new Error("User not found.");
+
+  const jobRole = String(prefs?.jobRole || "").trim();
+  const jobLocation = String(prefs?.jobLocation || "").trim();
+  const employmentType = String(prefs?.employmentType || "").trim();
+  const minBasePay = Number(prefs?.minBasePay);
+
+  if (!jobRole) throw new Error("Job role is required.");
+  if (!jobLocation) throw new Error("Job location is required.");
+  if (employmentType !== "fulltime" && employmentType !== "parttime") {
+    throw new Error("Employment type is required.");
+  }
+  if (!Number.isFinite(minBasePay) || minBasePay < 0) throw new Error("Minimum base pay must be 0 or more.");
+
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.rpc("app_prefs_upsert", {
+    p_token: token,
+    p_job_role: jobRole,
+    p_job_location: jobLocation,
+    p_employment_type: employmentType,
+    p_min_base_pay: minBasePay,
+  });
+  if (error) throw error;
+  return data;
+}
+
+// --- Recruiter company profile (one-time) via token RPC
+
+export async function getRecruiterProfile(userId) {
+  // userId is unused in custom auth mode; kept for compatibility.
+  const token = getSessionToken();
+  if (!token) return null;
+
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.rpc("app_recruiter_profile_get", {
+    p_token: token,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function hasRecruiterProfile(userId) {
+  const profile = await getRecruiterProfile(userId);
+  return Boolean(profile);
+}
+
+export async function saveRecruiterProfile(userId, profile) {
+  const token = getSessionToken();
+  if (!token) throw new Error("User not found.");
+
+  const companyName = String(profile?.companyName || "").trim();
+  const companyDomain = String(profile?.companyDomain || "").trim();
+  const industry = String(profile?.industry || "").trim();
+  const companySize = String(profile?.companySize || "").trim();
+  const headquarters = String(profile?.headquarters || "").trim();
+
+  if (!companyName) throw new Error("Company name is required.");
+  if (!companyDomain) throw new Error("Company domain is required.");
+
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.rpc("app_recruiter_profile_upsert", {
+    p_token: token,
+    p_company_name: companyName,
+    p_company_domain: companyDomain,
+    p_industry: industry,
+    p_company_size: companySize,
+    p_headquarters: headquarters,
+  });
+  if (error) throw error;
+  return data;
+}
+
+// --- Recruiter job openings via token RPC
+
+export async function listRecruiterJobOpenings() {
+  const token = getSessionToken();
+  if (!token) return [];
+
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.rpc("app_job_openings_list", {
+    p_token: token,
+  });
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
+export async function createRecruiterJobOpening(payload) {
+  const token = getSessionToken();
+  if (!token) throw new Error("User not found.");
+
+  const roleTitle = String(payload?.roleTitle || "").trim();
+  const compensation = String(payload?.compensation || "").trim();
+  const description = String(payload?.description || "").trim();
+  const skillsNeeded = String(payload?.skillsNeeded || "").trim();
+  const jobType = String(payload?.jobType || "Full-time").trim();
+  const jobLocation = String(payload?.jobLocation || "Remote").trim();
+  const applicationDeadline = payload?.applicationDeadline ? String(payload.applicationDeadline) : "";
+  const screeningStartDate = payload?.screeningStartDate ? String(payload.screeningStartDate) : "";
+  const screeningEndDate = payload?.screeningEndDate ? String(payload.screeningEndDate) : "";
+  const hasProjectAssignment = Boolean(payload?.hasProjectAssignment);
+  const projectDescription = String(payload?.projectDescription || "").trim();
+  const yearsOfExperience = Number(payload?.yearsOfExperience);
+  const headcount = Number(payload?.headcount);
+
+  if (!roleTitle) throw new Error("Role title is required.");
+  if (!description) throw new Error("Job description is required.");
+  if (!jobType) throw new Error("Job type is required.");
+  if (jobType !== "Remote" && !jobLocation) throw new Error("Job location is required for non-remote positions.");
+  if (!Number.isFinite(yearsOfExperience) || yearsOfExperience < 0) {
+    throw new Error("Years of experience must be 0 or more.");
+  }
+  if (!Number.isFinite(headcount) || headcount <= 0) {
+    throw new Error("Hiring count must be 1 or more.");
+  }
+  if (hasProjectAssignment && !projectDescription) {
+    throw new Error("Project description is required.");
+  }
+
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.rpc("app_job_opening_create", {
+    p_token: token,
+    p_role_title: roleTitle,
+    p_compensation: compensation,
+    p_description: description,
+    p_skills_needed: skillsNeeded,
+    p_job_type: jobType,
+    p_job_location: jobLocation,
+    p_application_deadline: applicationDeadline || null,
+    p_screening_start_date: screeningStartDate || null,
+    p_screening_end_date: screeningEndDate || null,
+    p_has_project_assignment: hasProjectAssignment,
+    p_project_description: hasProjectAssignment ? projectDescription : null,
+    p_years_of_experience: yearsOfExperience,
+    p_headcount: headcount,
+  });
+  if (error) throw error;
+  return data;
+}
+
+// --- Public job openings list (for job seekers)
+
+export async function listPublicJobOpenings() {
+  const supabase = requireSupabase();
+  
+  // Fetch jobs with recruiter profile details
+  const { data: jobs, error: jobsError } = await supabase
+    .from("recruiter_job_openings")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (jobsError || !Array.isArray(jobs) || jobs.length === 0) {
+    const { data, error } = await supabase.rpc("app_public_job_openings_list");
+    if (error) throw error;
+    return Array.isArray(data) ? data : [];
+  }
+
+  // Get unique recruiter IDs
+  const recruiterIds = [...new Set(jobs.map(j => j.recruiter_id).filter(Boolean))];
+  
+  if (recruiterIds.length === 0) return jobs;
+
+  // Fetch recruiter profile details (company info)
+  const { data: profiles, error: profilesError } = await supabase
+    .from("recruiter_profiles")
+    .select("user_id, company_name, industry, company_size, headquarters")
+    .in("user_id", recruiterIds);
+
+  if (profilesError || !profiles) {
+    return jobs;
+  }
+
+  // Create a map for quick lookup
+  const profileMap = {};
+  profiles.forEach(p => {
+    profileMap[p.user_id] = p;
+  });
+
+  // Merge profile data with jobs
+  return jobs.map(job => ({
+    ...job,
+    company_name: profileMap[job.recruiter_id]?.company_name || "Company",
+    industry: profileMap[job.recruiter_id]?.industry || "",
+    company_size: profileMap[job.recruiter_id]?.company_size || "",
+    headquarters: profileMap[job.recruiter_id]?.headquarters || "",
+    date_posted: new Date(job.created_at).toLocaleDateString(),
+  }));
+}
+
+// --- Job applications (via RPC for custom auth)
+
+export async function createJobApplication({ candidateId, recruiterId, jobId, resumeUrl }) {
+  const token = getSessionToken();
+  if (!token) throw new Error("User not authenticated.");
+
+  const jobIdStr = String(jobId || "").trim();
+  const recruiterIdStr = String(recruiterId || "").trim();
+  const resumeStr = String(resumeUrl || "").trim();
+
+  if (!jobIdStr) throw new Error("Job ID is required.");
+  if (!recruiterIdStr) throw new Error("Recruiter ID is required.");
+  if (!resumeStr) throw new Error("Resume URL is required.");
+
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.rpc("app_create_job_application", {
+    p_token: token,
+    p_job_id: jobIdStr,
+    p_recruiter_id: recruiterIdStr,
+    p_resume_url: resumeStr,
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+// --- Resume upload to Supabase Storage
+
+export async function uploadResume(file) {
+  if (!file) throw new Error("No file selected");
+
+  const supabase = requireSupabase();
+  const token = getSessionToken();
+  if (!token) throw new Error("User not authenticated");
+
+  // Generate unique filename
+  const timestamp = Date.now();
+  const randomStr = Math.random().toString(36).substring(2, 8);
+  const filename = `resume_${timestamp}_${randomStr}.pdf`;
+
+  try {
+    // Upload to Supabase Storage - using Resume_Storage bucket and uploaded folder
+    const { data, error } = await supabase.storage
+      .from("Resume_Storage")
+      .upload(`uploaded/${filename}`, file, {
+        cacheControl: "3600",
+        upsert: false,
+      });
+
+    if (error) throw error;
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from("Resume_Storage")
+      .getPublicUrl(`uploaded/${filename}`);
+
+    return {
+      resume_url: urlData.publicUrl,
+      filename: filename,
+    };
+  } catch (err) {
+    throw new Error(`Failed to upload resume: ${err.message}`);
+  }
+}
