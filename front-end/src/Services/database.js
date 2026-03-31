@@ -254,9 +254,9 @@ export async function createRecruiterJobOpening(payload) {
   const skillsNeeded = String(payload?.skillsNeeded || "").trim();
   const jobType = String(payload?.jobType || "Full-time").trim();
   const jobLocation = String(payload?.jobLocation || "Remote").trim();
-  const applicationDeadline = payload?.applicationDeadline ? String(payload.applicationDeadline) : "";
-  const screeningStartDate = payload?.screeningStartDate ? String(payload.screeningStartDate) : "";
-  const screeningEndDate = payload?.screeningEndDate ? String(payload.screeningEndDate) : "";
+  const applicationDeadline = toIsoOrNull(payload?.applicationDeadline);
+  const screeningStartDate = toIsoOrNull(payload?.screeningStartDate);
+  const screeningEndDate = toIsoOrNull(payload?.screeningEndDate);
   const hasProjectAssignment = Boolean(payload?.hasProjectAssignment);
   const projectDescription = String(payload?.projectDescription || "").trim();
   const yearsOfExperience = Number(payload?.yearsOfExperience);
@@ -419,4 +419,25 @@ export async function uploadResume(file) {
   } catch (err) {
     throw new Error(`Failed to upload resume: ${err.message}`);
   }
+}
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+
+export async function triggerDueScreeningProcessing() {
+  const res = await fetch(`${API_BASE_URL}/applications/process-due-screenings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!res.ok) {
+    const msg = await res.text();
+    throw new Error(msg || "Failed to process due screenings");
+  }
+  return res.json();
+}
+
+function toIsoOrNull(v) {
+  const s = String(v || "").trim();
+  if (!s) return null;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }

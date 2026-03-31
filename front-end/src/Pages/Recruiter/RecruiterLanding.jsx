@@ -200,8 +200,12 @@ export default function RecruiterLandingPage() {
                     <span>Experience: {j.years_of_experience}+ yrs</span> • <span>Hiring: {j.headcount}</span>
                   </div>
                   <div className="rc-jobMeta text-xs text-slate-400 pt-3 border-t border-slate-600/30">
-                    <div className="mb-1"><strong>Deadline:</strong> {j.application_deadline || "—"}</div>
-                    <div><strong>Screening:</strong> {j.screening_start_date || "—"} to {j.screening_end_date || "—"}</div>
+                    <div className="mb-1">
+                      <strong>Deadline:</strong> {j.application_deadline ? new Date(j.application_deadline).toLocaleString() : "—"}
+                    </div>
+                    <div>
+                      <strong>Screening:</strong> {j.screening_start_date ? new Date(j.screening_start_date).toLocaleString() : "—"} to {j.screening_end_date ? new Date(j.screening_end_date).toLocaleString() : "—"}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -280,7 +284,12 @@ export default function RecruiterLandingPage() {
                 <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
                   <label className="grid gap-1.5">
                     <span className="text-xs opacity-85 font-semibold text-white">Application deadline (optional)</span>
-                    <input className="w-full max-w-full min-w-0 rounded-xl px-3 py-3 border border-white/15 bg-black/20 text-white outline-none focus:border-indigo-400/85 focus:ring-2 focus:ring-indigo-500/20" value={applicationDeadline} onChange={(e) => setApplicationDeadline(e.target.value)} type="date" />
+                    <input
+                      className="w-full max-w-full min-w-0 rounded-xl px-3 py-3 border border-white/15 bg-black/20 text-white outline-none focus:border-indigo-400/85 focus:ring-2 focus:ring-indigo-500/20"
+                      value={applicationDeadline}
+                      onChange={(e) => setApplicationDeadline(e.target.value)}
+                      type="datetime-local"
+                    />
                   </label>
                   <label className="grid gap-1.5">
                     <span className="text-xs opacity-85 font-semibold text-white">Years of experience <span className="text-red-400">*</span></span>
@@ -291,11 +300,21 @@ export default function RecruiterLandingPage() {
                 <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
                   <label className="grid gap-1.5">
                     <span className="text-xs opacity-85 font-semibold text-white">Initial screening start (optional)</span>
-                    <input className="w-full max-w-full min-w-0 rounded-xl px-3 py-3 border border-white/15 bg-black/20 text-white outline-none focus:border-indigo-400/85 focus:ring-2 focus:ring-indigo-500/20" value={screeningStartDate} onChange={(e) => setScreeningStartDate(e.target.value)} type="date" />
+                    <input
+                      className="w-full max-w-full min-w-0 rounded-xl px-3 py-3 border border-white/15 bg-black/20 text-white outline-none focus:border-indigo-400/85 focus:ring-2 focus:ring-indigo-500/20"
+                      value={screeningStartDate}
+                      onChange={(e) => setScreeningStartDate(e.target.value)}
+                      type="datetime-local"
+                    />
                   </label>
                   <label className="grid gap-1.5">
                     <span className="text-xs opacity-85 font-semibold text-white">Initial screening end (optional)</span>
-                    <input className="w-full max-w-full min-w-0 rounded-xl px-3 py-3 border border-white/15 bg-black/20 text-white outline-none focus:border-indigo-400/85 focus:ring-2 focus:ring-indigo-500/20" value={screeningEndDate} onChange={(e) => setScreeningEndDate(e.target.value)} type="date" />
+                    <input
+                      className="w-full max-w-full min-w-0 rounded-xl px-3 py-3 border border-white/15 bg-black/20 text-white outline-none focus:border-indigo-400/85 focus:ring-2 focus:ring-indigo-500/20"
+                      value={screeningEndDate}
+                      onChange={(e) => setScreeningEndDate(e.target.value)}
+                      type="datetime-local"
+                    />
                   </label>
                 </div>
 

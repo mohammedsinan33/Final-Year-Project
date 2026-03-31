@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { createJobApplication, getCurrentUser, listPublicJobOpenings, logout, uploadResume  } from "../../Services/database";
+import { createJobApplication, getCurrentUser, listPublicJobOpenings, logout, uploadResume, triggerDueScreeningProcessing } from "../../Services/database";
 import { requireSupabase } from "../../lib/supabaseClient";
 import JobHeader from "../../Components/JobHeader";
 import JobSearchBar from "../../Components/JobSearchBar";
@@ -140,6 +140,13 @@ export default function JobSeekerLanding() {
         jobId,
         resumeUrl,
       });
+
+      try {
+        // If you added process-one endpoint, use created.id here.
+        await triggerDueScreeningProcessing();
+      } catch (e) {
+        console.warn("Resume processing trigger failed:", e?.message || e);
+      }
 
       const jobIdStr = String(jobId);
       setAppliedJobIds((prev) => {
