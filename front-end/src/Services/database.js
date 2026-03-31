@@ -335,15 +335,25 @@ export async function listPublicJobOpenings() {
     profileMap[p.user_id] = p;
   });
 
-  // Merge profile data with jobs
-  return jobs.map(job => ({
-    ...job,
-    company_name: profileMap[job.recruiter_id]?.company_name || "Company",
-    industry: profileMap[job.recruiter_id]?.industry || "",
-    company_size: profileMap[job.recruiter_id]?.company_size || "",
-    headquarters: profileMap[job.recruiter_id]?.headquarters || "",
-    date_posted: new Date(job.created_at).toLocaleDateString(),
-  }));
+  // Merge profile data with jobs and filter out expired deadlines
+  const now = new Date();
+  return jobs
+    .filter(job => {
+      // If no deadline is set, keep the job
+      if (!job.application_deadline) return true;
+      
+      // If deadline exists, check if it's in the future
+      const deadline = new Date(job.application_deadline);
+      return deadline > now;
+    })
+    .map(job => ({
+      ...job,
+      company_name: profileMap[job.recruiter_id]?.company_name || "Company",
+      industry: profileMap[job.recruiter_id]?.industry || "",
+      company_size: profileMap[job.recruiter_id]?.company_size || "",
+      headquarters: profileMap[job.recruiter_id]?.headquarters || "",
+      date_posted: new Date(job.created_at).toLocaleDateString(),
+    }));
 }
 
 // --- Job applications (via RPC for custom auth)
