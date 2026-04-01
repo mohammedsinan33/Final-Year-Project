@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from typing import Any, Dict, List, Optional
 import os
 import json
@@ -8,6 +8,7 @@ load_dotenv()
 
 from app.utils.resume import extract_resume_text
 from app.llm_client import analyze_resume_with_llm
+from app.utils.mails import send_shortlist_email, send_application_received_email, send_interview_confirmation_email
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -44,10 +45,38 @@ def _download_resume(url: str) -> bytes:
         raise RuntimeError(f"Resume download failed: {r.status_code} - {r.text[:200]}")
     return r.content
 
+def _get_signed_url(path: str, ttl: int = 3600) -> str:
+    """Generate a signed URL for protected storage access using service role"""
+    from datetime import datetime, timedelta, timezone
+    import hmac
+    import hashlib
+    import base64
+    from urllib.parse import quote
+    
+    # path format: "bucket/path/to/file"
+    payload = {
+        "url": path,
+        "iat": int(datetime.now(timezone.utc).timestamp()),
+        "exp": int((datetime.now(timezone.utc) + timedelta(seconds=ttl)).timestamp()),
+    }
+    
+    # Create JWT manually for signed URL
+    import json
+    header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256"}).encode()).rstrip(b'=')
+    body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b'=')
+    signing_input = header + b'.' + body
+    
+    sig = base64.urlsafe_b64encode(
+        hmac.new(SUPABASE_SERVICE_ROLE_KEY.encode(), signing_input, hashlib.sha256).digest()
+    ).rstrip(b'=')
+    
+    token = (signing_input + b'.' + sig).decode()
+    
+    return f"{SUPABASE_URL}/storage/v1/object/sign/{path}?token={token}"
+
 @router.post("/process-due-screenings")
 async def process_due_screenings(limit: int = 50):
     try:
-        # pending applications
         apps = _sb_get(
             "job_applications",
             {
@@ -80,7 +109,6 @@ async def process_due_screenings(limit: int = 50):
                 )
                 continue
 
-            # get screening date + jd + skills from job table
             jobs = _sb_get(
                 "recruiter_job_openings",
                 {
@@ -96,11 +124,11 @@ async def process_due_screenings(limit: int = 50):
             job = jobs[0]
             screening_start = job.get("screening_start_date")
             if screening_start is None:
-                # no screening date means do not process yet
                 continue
 
             try:
                 print(f"Processing app {app_id}...")
+                # Use public URL directly (no signed URL generation)
                 file_bytes = _download_resume(resume_url)
                 resume_text = extract_resume_text(file_bytes, "resume.pdf")
                 if not resume_text.strip():
@@ -147,3 +175,298 @@ async def process_due_screenings(limit: int = 50):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/analyze-and-save-application")
+async def analyze_and_save_application(
+    file: UploadFile = File(...),
+    job_id: str = Form(...),
+    recruiter_id: str = Form(...),
+    candidate_id: str = Form(...),
+):
+    """
+    Directly analyze resume from upload and save to job_applications table
+    """
+    try:
+        print(f"Analyzing resume for job_id={job_id}, candidate_id={candidate_id}")
+        
+        # Read file bytes
+        file_bytes = await file.read()
+        
+        # Extract resume text
+        resume_text = extract_resume_text(file_bytes, file.filename or "resume.pdf")
+        if not resume_text.strip():
+            raise RuntimeError("No text extracted from resume")
+        
+        # Get job details (description + skills)
+        jobs = _sb_get(
+            "recruiter_job_openings",
+            {
+                "select": "description,skills_needed",
+                "id": f"eq.{job_id}",
+                "limit": "1",
+            },
+        )
+        if not jobs:
+            raise RuntimeError(f"Job {job_id} not found")
+        
+        job = jobs[0]
+        
+        # Analyze with LLM
+        report = await analyze_resume_with_llm(
+            resume_text=resume_text,
+            job_desc=job.get("description") or "",
+            skills_needed=job.get("skills_needed") or "",
+        )
+        
+        print(f"Analysis result: {json.dumps(report, indent=2)}")
+        
+        # Create application with analysis results
+        from datetime import datetime, timezone
+        payload = {
+            "candidate_id": candidate_id,
+            "job_id": job_id,
+            "recruiter_id": recruiter_id,
+            "resume_url": f"analyzed_{datetime.now(timezone.utc).isoformat()}",
+            "description": report.get("description") or "No profile summary available",
+            "key_skills": report.get("key_skills") or [],
+            "key_projects": report.get("key_projects") or [],
+            "experience": report.get("experience") or [],
+            "education": report.get("education") or [],
+            "highlights": report.get("highlights") or [],
+            "match_score": int(report.get("match_score") or 0),
+            "match_summary": report.get("match_summary") or "No match summary",
+            "resume_report_status": "done",
+            "resume_report_generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        
+        # Insert via RPC (or direct REST API)
+        app_data = _sb_get(
+            "job_applications",
+            {
+                "select": "*",
+                "candidate_id": f"eq.{candidate_id}",
+                "job_id": f"eq.{job_id}",
+                "limit": "1",
+            },
+        )
+        
+        if app_data:
+            # Update existing
+            _sb_patch("job_applications", {"id": f"eq.{app_data[0]['id']}"}, payload)
+        else:
+            # Create new - use REST API directly
+            r = requests.post(
+                f"{SUPABASE_URL}/rest/v1/job_applications",
+                headers=_headers(),
+                json=payload,
+                timeout=30,
+            )
+            if r.status_code >= 300:
+                raise RuntimeError(f"Failed to create application: {r.text}")
+        
+        return {
+            "ok": True,
+            "message": "Resume analyzed and saved",
+            "match_score": payload["match_score"],
+            "match_summary": payload["match_summary"],
+        }
+        
+    except Exception as e:
+        print(f"ERROR analyzing resume: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/send-shortlist-notifications")
+async def send_shortlist_notifications():
+    """Send shortlist or rejection emails based on match_score and screening dates"""
+    try:
+        from app.utils.mails import send_shortlist_email, send_rejection_email
+        from datetime import datetime
+        import pytz
+        from supabase import create_client
+        
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        now = datetime.now(pytz.UTC)
+        
+        # Fetch ALL applications where email not sent yet
+        applications = supabase.table("job_applications").select(
+            "id, candidate_id, match_score, job_id, has_project_assignment, app_users(email)"
+        ).filter(
+            "resume_shortlist_email_sent", "eq", False
+        ).execute()
+        
+        shortlist_count = 0
+        rejection_count = 0
+        failed_count = 0
+        
+        for app in applications.data:
+            # Get candidate email
+            candidate_email = app.get("app_users", {}).get("email") if app.get("app_users") else None
+            
+            if not candidate_email:
+                print(f"Skipping app {app['id']}: no candidate email found")
+                failed_count += 1
+                continue
+            
+            # Get job details including screening_start_date
+            job = supabase.table("recruiter_job_openings").select(
+                "job_title, screening_start_date, has_project_assignment"
+            ).eq("id", app["job_id"]).single().execute()
+            
+            if not job.data:
+                failed_count += 1
+                continue
+            
+            # Parse screening_start_date
+            screening_start = datetime.fromisoformat(
+                job.data["screening_start_date"].replace("Z", "+00:00")
+            )
+            
+            # Only send if screening has started
+            if now < screening_start:
+                print(f"Screening hasn't started yet for app {app['id']}")
+                continue
+            
+            match_score = app.get("match_score", 0)
+            job_title = job.data.get("job_title", "Position")
+            
+            # Send appropriate email based on match_score
+            if match_score >= 60:
+                # SHORTLIST EMAIL
+                if job.data.get("has_project_assignment"):
+                    next_link = f"{FRONTEND_URL}/project?app_id={app['id']}&job_id={app['job_id']}"
+                else:
+                    next_link = f"{FRONTEND_URL}/interview?app_id={app['id']}&job_id={app['job_id']}"
+                
+                if send_shortlist_email(candidate_email, match_score, job_title, next_link):
+                    shortlist_count += 1
+                else:
+                    failed_count += 1
+            else:
+                # REJECTION EMAIL
+                if send_rejection_email(candidate_email, job_title):
+                    rejection_count += 1
+                else:
+                    failed_count += 1
+            
+            # Mark email as sent
+            supabase.table("job_applications").update(
+                {
+                    "resume_shortlist_email_sent": True,
+                    "resume_shortlist_email_sent_at": now.isoformat()
+                }
+            ).eq("id", app["id"]).execute()
+        
+        return {
+            "success": True,
+            "shortlist_emails_sent": shortlist_count,
+            "rejection_emails_sent": rejection_count,
+            "emails_failed": failed_count,
+            "total_processed": shortlist_count + rejection_count + failed_count
+        }
+        
+    except Exception as e:
+        print(f"Error sending notifications: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}, 500
+
+@router.post("/send-shortlist-notifications")
+async def send_shortlist_notifications_manual():
+    """Manual endpoint to send pending emails"""
+    from app.utils.mails import send_all_pending_notifications
+    return await send_all_pending_notifications()
+
+@router.post("/send-application-received-email")
+async def send_application_received(app_id: str):
+    """Send application received confirmation email"""
+    try:
+        supabase = create_client(SUPABASE_URL, SERVICE_ROLE_KEY)
+        
+        # Get application details
+        app = supabase.table("job_applications").select(
+            "id, candidate_id, job_id, app_users!job_applications_candidate_id_fkey(email)"
+        ).eq("id", app_id).single().execute()
+        
+        if not app.data:
+            return {"success": False, "error": "Application not found"}
+        
+        # Get job details
+        job = supabase.table("recruiter_job_openings").select(
+            "role_title, recruiter_id"
+        ).eq("id", app.data["job_id"]).single().execute()
+        
+        if not job.data:
+            return {"success": False, "error": "Job not found"}
+        
+        # Get company details
+        company = supabase.table("recruiter_profiles").select(
+            "company_name"
+        ).eq("user_id", job.data["recruiter_id"]).execute()
+        
+        company_name = "Our Company"
+        if company.data and len(company.data) > 0:
+            company_name = company.data[0].get("company_name", "Our Company")
+        
+        candidate_email = app.data.get("app_users", {}).get("email")
+        job_title = job.data.get("role_title", "Position")
+        
+        if send_application_received_email(candidate_email, job_title, company_name):
+            return {"success": True, "message": "Application received email sent"}
+        else:
+            return {"success": False, "error": "Failed to send email"}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/send-interview-confirmation-email")
+async def send_interview_confirmation(app_id: str):
+    """Send interview scheduled confirmation email"""
+    try:
+        supabase = create_client(SUPABASE_URL, SERVICE_ROLE_KEY)
+        
+        # Get application details with interview scheduled date
+        app = supabase.table("job_applications").select(
+            "id, candidate_id, job_id, interview_scheduled_date, app_users!job_applications_candidate_id_fkey(email)"
+        ).eq("id", app_id).single().execute()
+        
+        if not app.data:
+            return {"success": False, "error": "Application not found"}
+        
+        if not app.data.get("interview_scheduled_date"):
+            return {"success": False, "error": "Interview not scheduled"}
+        
+        # Get job details
+        job = supabase.table("recruiter_job_openings").select(
+            "role_title, recruiter_id"
+        ).eq("id", app.data["job_id"]).single().execute()
+        
+        if not job.data:
+            return {"success": False, "error": "Job not found"}
+        
+        # Get company details
+        company = supabase.table("recruiter_profiles").select(
+            "company_name"
+        ).eq("user_id", job.data["recruiter_id"]).execute()
+        
+        company_name = "Our Company"
+        if company.data and len(company.data) > 0:
+            company_name = company.data[0].get("company_name", "Our Company")
+        
+        candidate_email = app.data.get("app_users", {}).get("email")
+        job_title = job.data.get("role_title", "Position")
+        
+        # Parse scheduled datetime
+        scheduled_dt = app.data.get("interview_scheduled_date")
+        scheduled_date = scheduled_dt.split("T")[0] if "T" in scheduled_dt else scheduled_dt
+        scheduled_time = scheduled_dt.split("T")[1][:5] if "T" in scheduled_dt else "10:00"
+        
+        if send_interview_confirmation_email(candidate_email, job_title, company_name, scheduled_date, scheduled_time):
+            return {"success": True, "message": "Interview confirmation email sent"}
+        else:
+            return {"success": False, "error": "Failed to send email"}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}

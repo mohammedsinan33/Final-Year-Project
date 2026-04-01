@@ -1,4 +1,4 @@
-import { requireSupabase } from "../lib/supabaseClient";
+import { supabase, requireSupabase } from "../lib/supabaseClient";
 
 // Custom auth via Supabase Postgres RPC (no confirmation emails).
 // You must create the SQL tables + functions in Supabase:
@@ -52,7 +52,6 @@ export async function getCurrentUser() {
   const token = getSessionToken();
   if (!token) return null;
 
-  const supabase = requireSupabase();
   const { data, error } = await supabase.rpc("app_get_user", {
     p_token: token,
   });
@@ -85,8 +84,6 @@ export function onAuthStateChange(callback) {
 }
 
 export async function login({ email, password }) {
-  const supabase = requireSupabase();
-
   const { data, error } = await supabase.rpc("app_login", {
     p_email: String(email || "").trim().toLowerCase(),
     p_password: String(password || ""),
@@ -104,9 +101,8 @@ export async function login({ email, password }) {
 export async function register({ email, password, role, fullName }) {
   const normalizedFullName = String(fullName || "").trim();
   if (!normalizedFullName) throw new Error("Full name is required.");
-  if (role !== "recruiter" && role !== "jobseeker") throw new Error("Please select an account type.");
-
-  const supabase = requireSupabase();
+  if (role !== "recruiter" && role !== "jobseeker")
+    throw new Error("Please select an account type.");
 
   const { data, error } = await supabase.rpc("app_register", {
     p_email: String(email || "").trim().toLowerCase(),
@@ -143,7 +139,6 @@ export async function getJobSeekerPreferences(userId) {
   const token = getSessionToken();
   if (!token) return null;
 
-  const supabase = requireSupabase();
   const { data, error } = await supabase.rpc("app_prefs_get", {
     p_token: token,
   });
@@ -170,9 +165,9 @@ export async function saveJobSeekerPreferences(userId, prefs) {
   if (employmentType !== "fulltime" && employmentType !== "parttime") {
     throw new Error("Employment type is required.");
   }
-  if (!Number.isFinite(minBasePay) || minBasePay < 0) throw new Error("Minimum base pay must be 0 or more.");
+  if (!Number.isFinite(minBasePay) || minBasePay < 0)
+    throw new Error("Minimum base pay must be 0 or more.");
 
-  const supabase = requireSupabase();
   const { data, error } = await supabase.rpc("app_prefs_upsert", {
     p_token: token,
     p_job_role: jobRole,
@@ -191,7 +186,6 @@ export async function getRecruiterProfile(userId) {
   const token = getSessionToken();
   if (!token) return null;
 
-  const supabase = requireSupabase();
   const { data, error } = await supabase.rpc("app_recruiter_profile_get", {
     p_token: token,
   });
@@ -217,7 +211,6 @@ export async function saveRecruiterProfile(userId, profile) {
   if (!companyName) throw new Error("Company name is required.");
   if (!companyDomain) throw new Error("Company domain is required.");
 
-  const supabase = requireSupabase();
   const { data, error } = await supabase.rpc("app_recruiter_profile_upsert", {
     p_token: token,
     p_company_name: companyName,
@@ -236,7 +229,6 @@ export async function listRecruiterJobOpenings() {
   const token = getSessionToken();
   if (!token) return [];
 
-  const supabase = requireSupabase();
   const { data, error } = await supabase.rpc("app_job_openings_list", {
     p_token: token,
   });
@@ -265,7 +257,8 @@ export async function createRecruiterJobOpening(payload) {
   if (!roleTitle) throw new Error("Role title is required.");
   if (!description) throw new Error("Job description is required.");
   if (!jobType) throw new Error("Job type is required.");
-  if (jobType !== "Remote" && !jobLocation) throw new Error("Job location is required for non-remote positions.");
+  if (jobType !== "Remote" && !jobLocation)
+    throw new Error("Job location is required for non-remote positions.");
   if (!Number.isFinite(yearsOfExperience) || yearsOfExperience < 0) {
     throw new Error("Years of experience must be 0 or more.");
   }
@@ -276,7 +269,6 @@ export async function createRecruiterJobOpening(payload) {
     throw new Error("Project description is required.");
   }
 
-  const supabase = requireSupabase();
   const { data, error } = await supabase.rpc("app_job_opening_create", {
     p_token: token,
     p_role_title: roleTitle,
@@ -301,7 +293,7 @@ export async function createRecruiterJobOpening(payload) {
 
 export async function listPublicJobOpenings() {
   const supabase = requireSupabase();
-  
+
   // Fetch jobs with recruiter profile details
   const { data: jobs, error: jobsError } = await supabase
     .from("recruiter_job_openings")
@@ -370,7 +362,6 @@ export async function createJobApplication({ candidateId, recruiterId, jobId, re
   if (!recruiterIdStr) throw new Error("Recruiter ID is required.");
   if (!resumeStr) throw new Error("Resume URL is required.");
 
-  const supabase = requireSupabase();
   const { data, error } = await supabase.rpc("app_create_job_application", {
     p_token: token,
     p_job_id: jobIdStr,
@@ -397,7 +388,7 @@ export async function uploadResume(file) {
   const filename = `resume_${timestamp}_${randomStr}.pdf`;
 
   try {
-    // Upload to Supabase Storage - using Resume_Storage bucket and uploaded folder
+    // Upload to Supabase Storage
     const { data, error } = await supabase.storage
       .from("Resume_Storage")
       .upload(`uploaded/${filename}`, file, {
@@ -407,18 +398,48 @@ export async function uploadResume(file) {
 
     if (error) throw error;
 
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from("Resume_Storage")
-      .getPublicUrl(`uploaded/${filename}`);
+    // Get PUBLIC URL (not signed) for long-term storage
+    const bucketUrl = "https://utuzyoyjmwmrktnvjkfe.supabase.co";
+    const resume_url = `${bucketUrl}/storage/v1/object/public/Resume_Storage/uploaded/${filename}`;
 
     return {
-      resume_url: urlData.publicUrl,
+      resume_url: resume_url,
       filename: filename,
     };
   } catch (err) {
     throw new Error(`Failed to upload resume: ${err.message}`);
   }
+}
+
+export async function uploadResumeAndAnalyze({ 
+  file, 
+  jobId, 
+  recruiterId, 
+  candidateId 
+}) {
+  if (!file) throw new Error("No file selected");
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("job_id", jobId);
+  formData.append("recruiter_id", recruiterId);
+  formData.append("candidate_id", candidateId);
+
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+  const res = await fetch(
+    `${API_BASE_URL}/applications/analyze-and-save-application`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+
+  if (!res.ok) {
+    const msg = await res.text();
+    throw new Error(msg || "Failed to analyze resume");
+  }
+
+  return res.json();
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
@@ -441,3 +462,126 @@ function toIsoOrNull(v) {
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
+
+async function handleUploadResume() {
+  if (!resumeFile || uploadBusy) return;
+  setUploadBusy(true);
+  setUploadError("");
+  setUploadUrl("");
+
+  try {
+    const jobId = selectedJob?.id || selectedJob?.job_id || selectedJob?.jobId || "";
+    const candidateId = user?.id;
+    const recruiterId = await resolveRecruiterId(
+      jobId,
+      selectedJob?.recruiter_id || selectedJob?.recruiterId || ""
+    );
+
+    if (!candidateId) throw new Error("User not found. Please log in again.");
+    if (!jobId) throw new Error("Job ID is missing. Please refresh and try again.");
+    if (!recruiterId) {
+      throw new Error("Recruiter ID is missing for this job. Please open a job posted in the system.");
+    }
+
+    // Send resume directly to backend for analysis
+    const result = await uploadResumeAndAnalyze({
+      file: resumeFile,
+      jobId,
+      recruiterId,
+      candidateId,
+    });
+
+    console.log("Resume analyzed and saved:", result);
+    setUploadUrl("Analyzed and saved!");
+
+    const jobIdStr = String(jobId);
+    setAppliedJobIds((prev) => {
+      const next = prev.includes(jobIdStr) ? prev : [...prev, jobIdStr];
+      if (user?.id) persistAppliedJobs(user.id, next);
+      return next;
+    });
+    setApplyOpen(false);
+
+  } catch (err) {
+    setUploadError(err?.message || "Upload failed");
+  } finally {
+    setUploadBusy(false);
+  }
+}
+
+// Interview Scheduler functions
+export const fetchJobDetails = async (jobId) => {
+  try {
+    const { data, error } = await supabase
+      .from("recruiter_job_openings")
+      .select("role_title, screening_start_date, screening_end_date, project_description")
+      .eq("id", jobId)
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error("Error fetching job details:", error);
+    throw error;
+  }
+};
+
+export const scheduleInterview = async (appId, scheduledDateTime) => {
+  try {
+    const { error } = await supabase
+      .from("job_applications")
+      .update({
+        interview_scheduled_date: scheduledDateTime,
+        interview_status: "scheduled",
+      })
+      .eq("id", appId);
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error("Error scheduling interview:", error);
+    throw error;
+  }
+};
+
+export const sendInterviewConfirmationEmail = async (appId) => {
+  try {
+    const response = await fetch(
+      `${import.meta.env.VITE_BACKEND_URL}/send-interview-confirmation-email`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ app_id: appId }),
+      }
+    );
+
+    if (!response.ok) throw new Error("Failed to send confirmation email");
+    return await response.json();
+  } catch (error) {
+    console.error("Error sending confirmation email:", error);
+    throw error;
+  }
+};
+
+export const submitProjectDetails = async (appId, projectData) => {
+  try {
+    const { error } = await supabase
+      .from("job_applications")
+      .update({
+        project_repository_link: projectData.repositoryLink,
+        project_hosted_link: projectData.hostedLink,
+        project_description: projectData.description,
+        project_submitted: true,
+        project_submitted_at: new Date().toISOString(),
+      })
+      .eq("id", appId);
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error("Error submitting project:", error);
+    throw error;
+  }
+};

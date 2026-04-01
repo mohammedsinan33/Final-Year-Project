@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { createJobApplication, getCurrentUser, listPublicJobOpenings, logout, uploadResume, triggerDueScreeningProcessing } from "../../Services/database";
+import { uploadResumeAndAnalyze, getCurrentUser, listPublicJobOpenings, logout } from "../../Services/database";
 import { requireSupabase } from "../../lib/supabaseClient";
 import JobHeader from "../../Components/JobHeader";
 import JobSearchBar from "../../Components/JobSearchBar";
@@ -116,10 +116,6 @@ export default function JobSeekerLanding() {
     setUploadUrl("");
 
     try {
-      const result = await uploadResume(resumeFile);
-      const resumeUrl = String(result.resume_url || "").trim();
-      setUploadUrl(resumeUrl);
-
       const jobId = selectedJob?.id || selectedJob?.job_id || selectedJob?.jobId || "";
       const candidateId = user?.id;
       const recruiterId = await resolveRecruiterId(
@@ -132,21 +128,17 @@ export default function JobSeekerLanding() {
       if (!recruiterId) {
         throw new Error("Recruiter ID is missing for this job. Please open a job posted in the system.");
       }
-      if (!resumeUrl) throw new Error("Resume upload did not return a URL.");
 
-      await createJobApplication({
-        candidateId,
-        recruiterId,
+      // Send resume directly to backend for analysis
+      const result = await uploadResumeAndAnalyze({
+        file: resumeFile,
         jobId,
-        resumeUrl,
+        recruiterId,
+        candidateId,
       });
 
-      try {
-        // If you added process-one endpoint, use created.id here.
-        await triggerDueScreeningProcessing();
-      } catch (e) {
-        console.warn("Resume processing trigger failed:", e?.message || e);
-      }
+      console.log("Resume analyzed and saved:", result);
+      setUploadUrl("Analyzed and saved!");
 
       const jobIdStr = String(jobId);
       setAppliedJobIds((prev) => {
@@ -155,9 +147,9 @@ export default function JobSeekerLanding() {
         return next;
       });
       setApplyOpen(false);
-      setResumeFile(null);
+
     } catch (err) {
-      setUploadError(err?.message || "Could not upload resume.");
+      setUploadError(err?.message || "Upload failed");
     } finally {
       setUploadBusy(false);
     }

@@ -12,6 +12,9 @@ import JobSeekerLanding from "./Pages/Jobseaker/JobSeekerLanding";
 import JobSeekerPreferences from "./Pages/Jobseaker/JobSeekerPreferences";
 import RecruiterLanding from "./Pages/Recruiter/RecruiterLanding";
 import RecruiterCompanyPage from "./Pages/Recruiter/RecruiterCompanyPage";
+import ProjectScreen from "./Pages/ProjectScreen";
+import InterviewScheduler from "./Pages/InterviewScheduler";
+import ProjectSubmission from "./Pages/ProjectSubmission";
 import "./App.css";
 
 const App = () => {
@@ -64,6 +67,9 @@ const App = () => {
           <Route path="/tester" element={<InterviewTester />} />
           <Route path="/proctored-report" element={<ProctoredReport />} />
           <Route path="/finalrport" element={<Finalrport />} />
+          <Route path="/project" element={<ProjectScreen />} />
+          <Route path="/project-submission" element={<ProjectSubmission />} />
+          <Route path="/interview-scheduler" element={<InterviewScheduler />} />
           <Route path="*" element={<AnalyzerPage />} />
         </Routes>
       </Router>
