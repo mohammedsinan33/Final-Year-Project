@@ -1,0 +1,34 @@
+# Web Framework & Server
+fastapi==0.110.0
+uvicorn==0.29.0
+pydantic==2.6.3
+pydantic-settings==2.2.1
+
+# Database integration
+supabase==2.4.1
+gotrue==1.3.0
+postgrest==0.16.2
+
+# Background Scheduling 
+apscheduler==3.10.4
+
+# Tools & Utilities
+python-dotenv==1.0.1
+pytz==2024.1
+requests==2.31.0
+httpx==0.27.0
+aiohttp==3.9.3
+
+# AI / ML - Google Gemini
+google-generativeai==0.4.1
+
+# Computer Vision & Proctoring Models
+opencv-python-headless==4.9.0.80  # Headless is required for servers like Render
+dlib==19.24.2
+numpy==1.26.4
+tensorflow-cpu==2.16.1  # CPU version is smaller and prevents Render OOM crashes
+mediapipe==0.10.11
+
+# Add-ons for CV utilities (If needed by Proctoring AI scripts)
+imutils==0.5.4
+scipy==1.12.0
