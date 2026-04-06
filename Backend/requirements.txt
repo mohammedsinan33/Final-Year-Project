@@ -23,12 +23,12 @@ aiohttp==3.9.3
 google-generativeai==0.4.1
 
 # Computer Vision & Proctoring Models
-opencv-python-headless==4.9.0.80  # Headless is required for servers like Render
-dlib==19.24.2
-numpy==1.26.4
-tensorflow-cpu==2.16.1  # CPU version is smaller and prevents Render OOM crashes
-mediapipe==0.10.11
+opencv-python-headless
+dlib
+numpy
+tensorflow-cpu
+mediapipe
 
-# Add-ons for CV utilities (If needed by Proctoring AI scripts)
-imutils==0.5.4
-scipy==1.12.0
+# Add-ons for CV utilities 
+imutils
+scipy
