@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../Context/AuthContext";
+import { ArrowRight, Building2, Globe, Users, MapPin, Zap, Briefcase } from "lucide-react";
 
 export default function RecruiterCompanyPage() {
   const nav = useNavigate();
@@ -14,14 +15,12 @@ export default function RecruiterCompanyPage() {
   const [companySize, setCompanySize] = useState("");
   const [headquarters, setHeadquarters] = useState("");
 
-
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
     setBusy(true);
 
     try {
-      // Store company profile in localStorage or send to backend
       localStorage.setItem("recruiterProfile", JSON.stringify({
         companyName,
         companyDomain,
@@ -38,82 +37,143 @@ export default function RecruiterCompanyPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-stretch justify-center p-6 max-[420px]:p-3.5">
-      <div className="w-full max-w-[520px] border border-white/10 bg-white/5 rounded-2xl p-[22px] text-left max-[420px]:p-4">
-        <h1 className="m-0 text-xl font-semibold">Company Profile</h1>
-        <p className="mt-1.5 mb-0 text-sm opacity-80">Tell us about your company (asked once).</p>
+    <div className="min-h-screen bg-gradient-to-br from-white via-green-50 to-emerald-50 flex items-center justify-center p-6 py-12">
+      {/* Background Elements */}
+      <div className="fixed top-0 left-0 w-96 h-96 bg-emerald-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 -z-10 animate-pulse"></div>
+      <div className="fixed bottom-0 right-0 w-96 h-96 bg-teal-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 -z-10 animate-pulse" style={{animationDelay: '2s'}}></div>
 
-        {error ? (
-          <div className="mt-2.5 p-2.5 px-3 rounded-xl border border-red-600/35 bg-red-600/10" role="alert">
-            {error}
+      <div className="w-full max-w-2xl">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="flex items-center justify-center mb-4">
+            <div className="bg-gradient-to-br from-emerald-600 to-teal-600 p-3 rounded-xl">
+              <Zap size={32} className="text-white" />
+            </div>
           </div>
-        ) : null}
+          <h1 className="text-4xl font-black text-gray-900 mb-3">Company Setup</h1>
+          <p className="text-xl text-gray-600">Tell us about your company to get started</p>
+        </div>
 
-        <form className="mt-3 grid gap-3" onSubmit={onSubmit}>
-          <label className="grid gap-1.5">
-            <span className="text-[13px] opacity-85 font-semibold">Company name</span>
-            <input
-              className="w-full max-w-full min-w-0 rounded-xl px-3 py-3 border border-white/15 bg-black/20 text-inherit outline-none focus:border-indigo-400/85 focus:ring-2 focus:ring-indigo-500/20"
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              type="text"
-              placeholder="e.g., Continental"
-              required
-              autoFocus
-            />
-          </label>
+        {/* Main Card */}
+        <div className="bg-white rounded-2xl shadow-2xl p-8 md:p-12 border border-emerald-100">
+          {/* Error Alert */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
+              <p className="text-red-800 font-medium text-sm">{error}</p>
+            </div>
+          )}
 
-          <label className="grid gap-1.5">
-            <span className="text-[13px] opacity-85 font-semibold">Company domain</span>
-            <input
-              className="w-full max-w-full min-w-0 rounded-xl px-3 py-3 border border-white/15 bg-black/20 text-inherit outline-none focus:border-indigo-400/85 focus:ring-2 focus:ring-indigo-500/20"
-              value={companyDomain}
-              onChange={(e) => setCompanyDomain(e.target.value)}
-              type="text"
-              placeholder="e.g., continental.com"
-              required
-            />
-          </label>
+          <form className="space-y-6" onSubmit={onSubmit}>
+            {/* Company Name */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 mb-2">
+                <div className="flex items-center gap-2">
+                  <Building2 size={18} className="text-emerald-600" />
+                  Company Name *
+                </div>
+              </label>
+              <input
+                className="w-full px-4 py-3 rounded-xl border-2 border-emerald-100 bg-emerald-50/50 text-gray-900 outline-none transition-all focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 placeholder-gray-400"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                type="text"
+                placeholder="e.g., Continental"
+                required
+                autoFocus
+              />
+            </div>
 
-          <label className="grid gap-1.5">
-            <span className="text-[13px] opacity-85 font-semibold">Industry (optional)</span>
-            <input
-              className="w-full max-w-full min-w-0 rounded-xl px-3 py-3 border border-white/15 bg-black/20 text-inherit outline-none focus:border-indigo-400/85 focus:ring-2 focus:ring-indigo-500/20"
-              value={industry}
-              onChange={(e) => setIndustry(e.target.value)}
-              type="text"
-              placeholder="e.g., Automotive / Software"
-            />
-          </label>
+            {/* Company Domain */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 mb-2">
+                <div className="flex items-center gap-2">
+                  <Globe size={18} className="text-emerald-600" />
+                  Company Domain *
+                </div>
+              </label>
+              <input
+                className="w-full px-4 py-3 rounded-xl border-2 border-emerald-100 bg-emerald-50/50 text-gray-900 outline-none transition-all focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 placeholder-gray-400"
+                value={companyDomain}
+                onChange={(e) => setCompanyDomain(e.target.value)}
+                type="text"
+                placeholder="e.g., continental.com"
+                required
+              />
+            </div>
 
-          <label className="grid gap-1.5">
-            <span className="text-[13px] opacity-85 font-semibold">Company size (optional)</span>
-            <input
-              className="w-full max-w-full min-w-0 rounded-xl px-3 py-3 border border-white/15 bg-black/20 text-inherit outline-none focus:border-indigo-400/85 focus:ring-2 focus:ring-indigo-500/20"
-              value={companySize}
-              onChange={(e) => setCompanySize(e.target.value)}
-              type="text"
-              placeholder="e.g., 201–500"
-            />
-          </label>
+            {/* Industry */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 mb-2">
+                <div className="flex items-center gap-2">
+                  <Briefcase size={18} className="text-emerald-600" />
+                  Industry (Optional)
+                </div>
+              </label>
+              <input
+                className="w-full px-4 py-3 rounded-xl border-2 border-emerald-100 bg-emerald-50/50 text-gray-900 outline-none transition-all focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 placeholder-gray-400"
+                value={industry}
+                onChange={(e) => setIndustry(e.target.value)}
+                type="text"
+                placeholder="e.g., Automotive / Software"
+              />
+            </div>
 
-          <label className="grid gap-1.5">
-            <span className="text-[13px] opacity-85 font-semibold">Headquarters (optional)</span>
-            <input
-              className="w-full max-w-full min-w-0 rounded-xl px-3 py-3 border border-white/15 bg-black/20 text-inherit outline-none focus:border-indigo-400/85 focus:ring-2 focus:ring-indigo-500/20"
-              value={headquarters}
-              onChange={(e) => setHeadquarters(e.target.value)}
-              type="text"
-              placeholder="e.g., Bengaluru"
-            />
-          </label>
+            {/* Company Size */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 mb-2">
+                <div className="flex items-center gap-2">
+                  <Users size={18} className="text-emerald-600" />
+                  Company Size (Optional)
+                </div>
+              </label>
+              <select className="w-full px-4 py-3 rounded-xl border-2 border-emerald-100 bg-emerald-50/50 text-gray-900 outline-none transition-all focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200">
+                <option value="">Select company size</option>
+                <option value="1-50">1–50 employees</option>
+                <option value="51-200">51–200 employees</option>
+                <option value="201-500">201–500 employees</option>
+                <option value="501-1000">501–1,000 employees</option>
+                <option value="1000+">1,000+ employees</option>
+              </select>
+            </div>
 
-          <div className="mt-1 flex justify-end">
-            <button type="submit" className="rounded-xl px-3 py-2.5 border border-indigo-500/55 bg-indigo-500/15 text-inherit cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed" disabled={busy}>
-              {busy ? "Saving…" : "Continue"}
+            {/* Headquarters */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 mb-2">
+                <div className="flex items-center gap-2">
+                  <MapPin size={18} className="text-emerald-600" />
+                  Headquarters (Optional)
+                </div>
+              </label>
+              <input
+                className="w-full px-4 py-3 rounded-xl border-2 border-emerald-100 bg-emerald-50/50 text-gray-900 outline-none transition-all focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 placeholder-gray-400"
+                value={headquarters}
+                onChange={(e) => setHeadquarters(e.target.value)}
+                type="text"
+                placeholder="e.g., Bengaluru, India"
+              />
+            </div>
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={busy}
+              className="w-full mt-8 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white py-3 rounded-xl font-bold text-lg transition-all transform hover:-translate-y-1 shadow-lg hover:shadow-xl disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {busy ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Setting up...
+                </>
+              ) : (
+                <>
+                  Continue to Dashboard <ArrowRight size={20} />
+                </>
+              )}
             </button>
-          </div>
-        </form>
+          </form>
+        </div>
+
+        <p className="text-center mt-6 text-gray-500 text-sm">You can update this information later</p>
       </div>
     </div>
   );

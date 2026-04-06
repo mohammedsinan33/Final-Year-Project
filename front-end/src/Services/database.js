@@ -566,22 +566,32 @@ export const sendInterviewConfirmationEmail = async (appId) => {
 };
 
 export const submitProjectDetails = async (appId, projectData) => {
-  try {
-    const { error } = await supabase
-      .from("job_applications")
-      .update({
-        project_repository_link: projectData.repositoryLink,
-        project_hosted_link: projectData.hostedLink,
-        project_description: projectData.description,
-        project_submitted: true,
-        project_submitted_at: new Date().toISOString(),
-      })
-      .eq("id", appId);
+  if (!appId) throw new Error("Missing application id.");
 
-    if (error) throw error;
-    return true;
-  } catch (error) {
-    console.error("Error submitting project:", error);
-    throw error;
+  const repositoryLink = String(projectData?.repositoryLink || "").trim();
+  const hostedLink = String(projectData?.hostedLink || "").trim();
+  const description = String(projectData?.description || "").trim();
+
+  if (!repositoryLink) throw new Error("Repository link is required.");
+  if (!hostedLink) throw new Error("Hosted link is required.");
+  if (!description) throw new Error("Project description is required.");
+
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+  const response = await fetch(`${API_BASE_URL}/applications/submit-project`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      app_id: appId,
+      project_repository_link: repositoryLink,
+      project_hosted_link: hostedLink,
+      project_description: description,
+    }),
+  });
+
+  if (!response.ok) {
+    const msg = await response.text();
+    throw new Error(msg || "Failed to submit project details");
   }
+
+  return true;
 };

@@ -72,24 +72,95 @@ def get_session_data(session_id: str) -> Dict[str, Any]:
 class InterviewContextRequest(BaseModel):
     repo_analysis: Optional[Dict[str, Any]] = None
     resume_analysis: Optional[Dict[str, Any]] = None
+    application_id: Optional[str] = None  # ADD THIS LINE
 
 class InterviewContextResponse(BaseModel):
     context: str
     agent_id: str
     api_key: str
     success: bool
+    session_id: Optional[str] = None  # ADD THIS
 
 @router.post("/prepare-interview", response_model=InterviewContextResponse)
 async def prepare_interview(payload: InterviewContextRequest):
     """
     Generate interview context from repo and resume analysis and update ElevenLabs agent.
+    Can fetch data from job_applications table if application_id is provided.
     """
+    
+    # Helper function to ensure data is a list
+    def as_list(value):
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            return [value]
+        return []
+    
+    repo = {}
+    resume = {}
+    
+    # Fetch from job_applications table if application_id provided
+    if payload.application_id:
+        try:
+            from supabase import create_client
+            
+            sb_url = os.getenv("SUPABASE_URL", "").strip()
+            sb_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+            
+            if not sb_url or not sb_key:
+                raise HTTPException(status_code=500, detail="Supabase credentials missing")
+            
+            supabase = create_client(sb_url, sb_key)
+            
+            # Fetch the specific application's data
+            result = supabase.table("job_applications").select(
+                "project_description_analyzed,"
+                "project_features,"
+                "project_tech_stack,"
+                "project_interview_questions,"
+                "key_skills,"
+                "experience,"
+                "highlights"
+            ).eq("id", payload.application_id).single().execute()
+            
+            if result.data:
+                app_row = result.data
+                
+                # Map job_applications columns to repo structure
+                repo = {
+                    "description": app_row.get("project_description_analyzed"),
+                    "tech_stack": as_list(app_row.get("project_tech_stack")),
+                    "features": as_list(app_row.get("project_features")),
+                    "questions_that_can_be_asked_in_interview": as_list(app_row.get("project_interview_questions")),
+                }
+                
+                # Map job_applications columns to resume structure
+                resume = {
+                    "key_skills": as_list(app_row.get("key_skills")),
+                    "experience": as_list(app_row.get("experience")),
+                    "highlights": as_list(app_row.get("highlights")),
+                }
+        except Exception as e:
+            print(f"⚠️ Error fetching application data: {str(e)}")
+            # Fall back to payload data
+            repo = payload.repo_analysis or {}
+            resume = payload.resume_analysis or {}
+    else:
+        # Use payload data if no application_id provided
+        repo = payload.repo_analysis or {}
+        resume = payload.resume_analysis or {}
     
     context_parts = []
     
-    # Build context from Repository Analysis
-    if payload.repo_analysis:
-        repo = payload.repo_analysis
+    # Build context from Repository Analysis - ONLY if project data exists
+    has_project_data = bool(
+        repo.get("description") or 
+        repo.get("tech_stack") or 
+        repo.get("features") or 
+        repo.get("questions_that_can_be_asked_in_interview")
+    )
+
+    if has_project_data:
         context_parts.append("=== CANDIDATE'S PROJECT ANALYSIS ===")
         
         if repo.get("description"):
@@ -109,8 +180,7 @@ async def prepare_interview(payload: InterviewContextRequest):
                 context_parts.append(f"{i}. {q}")
     
     # Build context from Resume Analysis
-    if payload.resume_analysis:
-        resume = payload.resume_analysis
+    if resume:
         context_parts.append("\n=== CANDIDATE'S RESUME ANALYSIS ===")
         
         if resume.get("key_skills"):
@@ -125,9 +195,11 @@ async def prepare_interview(payload: InterviewContextRequest):
             highlights = "; ".join(resume["highlights"][:2])
             context_parts.append(f"Key Achievements: {highlights}")
     
-    # Add Standard Interview Instructions
+    # Add Standard Interview Instructions (adaptive based on project)
     context_parts.append("\n=== INTERVIEW GUIDELINES ===")
-    context_parts.append("""
+
+    if has_project_data:
+        guidelines = """
 You are conducting a technical interview. Follow this structure:
 1. Start with a brief introduction and ask the candidate to introduce themselves
 2. Ask 2-3 questions about their PROJECT (based on the analysis above)
@@ -137,18 +209,56 @@ You are conducting a technical interview. Follow this structure:
 
 Keep questions concise and conversational. Listen to their answers and ask follow-up questions.
 Be professional but friendly. Each question should be asked ONE AT A TIME.
-""")
-    
+"""
+    else:
+        guidelines = """
+You are conducting a technical interview (Resume & Skills focused). Follow this structure:
+1. Start with a brief introduction and ask the candidate to introduce themselves
+2. Ask 3-4 questions about their RESUME experience and technical skills (based on the analysis above)
+3. Ask 2-3 FUNDAMENTAL questions on: Data Structures & Algorithms, Computer Networks, DBMS, or OOP
+4. Ask 1-2 questions about their career goals and what they're looking for
+5. End by asking if they have any questions for you
+
+Keep questions concise and conversational. Listen to their answers and ask follow-up questions.
+Be professional but friendly. Each question should be asked ONE AT A TIME.
+"""
+
+    context_parts.append(guidelines)
     context = "\n".join(context_parts)
     
-    # Add explicit instruction at the start of the context
-    system_instruction = (
-        "You are a technical interviewer named Sarah. "
-        "Use the following analysis of the candidate's code and resume to ask them targeted questions. "
-        "Do not read the analysis out loud; use it to formulate your questions.\n\n"
+    # IMPORTANT: Store context in session for THIS interview
+    # The session_id will be sent from frontend and used to retrieve this context
+    session_id = f"interview_{payload.application_id}_{int(__import__('time').time() * 1000)}"
+    
+    upsert_session_context(
+        session_id=session_id,
+        repo_analysis=repo,
+        resume_analysis=resume
     )
     
-    # Prepend the instruction
+    # Add explicit instruction at the start of the context
+    system_instruction = f"""You are a technical interviewer named Sarah.
+
+⚠️ IMPORTANT - FRESH INTERVIEW SESSION:
+- This is a COMPLETELY NEW interview with a NEW candidate
+- You have NO previous conversation history with this candidate
+- Do NOT ask questions you asked before in other interviews
+- Ask ORIGINAL, VARIED, and THOUGHTFUL questions
+- Focus ONLY on THIS candidate's specific project and resume
+- Keep track of what you've asked in THIS conversation and avoid repetition
+
+Your approach:
+1. Ask unique, specific questions about their code and approach
+2. Dig deeper into their architectural decisions, not just surface features
+3. Explore edge cases, error handling, and design trade-offs
+4. Listen carefully to their answers before asking follow-ups
+5. Ask each question ONE AT A TIME and wait for their full response
+
+Session ID (for reference): {session_id}
+Use the following analysis to formulate targeted, original questions.
+Do not read the analysis out loud; use it to guide your questioning.
+"""
+    
     full_prompt = system_instruction + context
     
     # Get ElevenLabs credentials
@@ -157,6 +267,9 @@ Be professional but friendly. Each question should be asked ONE AT A TIME.
     
     if not api_key:
         raise HTTPException(status_code=500, detail="ElevenLabs API key not configured")
+    
+    print(f"✅ Stored context for session: {session_id}")
+    print(f"📋 Context:\n{full_prompt}")
     
     # Update the agent's prompt via ElevenLabs API
     update_success = False
@@ -174,7 +287,7 @@ Be professional but friendly. Each question should be asked ONE AT A TIME.
                     "prompt": {
                         "prompt": full_prompt
                     },
-                    "first_message": "Hello! I'm Sinan, your technical interviewer. I've reviewed your project and resume. Let's start - could you briefly introduce yourself?"
+                    "first_message": "Hello! I'm Sarah, your technical interviewer. I've reviewed your profile. Let's start with introductions - could you briefly tell me about yourself and your background?"
                 }
             }
         }
@@ -186,17 +299,16 @@ Be professional but friendly. Each question should be asked ONE AT A TIME.
             update_success = True
         else:
             print(f"⚠️ Failed to update agent: {response.status_code} - {response.text}")
-            # Don't fail the request, just log it
             
     except Exception as e:
         print(f"⚠️ Error updating agent: {str(e)}")
-        # Don't fail the request, proceed anyway
     
     return {
         "context": full_prompt,
         "agent_id": agent_id,
         "api_key": api_key,
-        "success": update_success
+        "success": update_success,
+        "session_id": session_id
     }
 
 @router.post("/session/context")

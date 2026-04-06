@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../Context/AuthContext";
+import { ArrowRight, Mail, Lock, Zap } from "lucide-react";
 
 export default function Signin() {
   const nav = useNavigate();
@@ -29,25 +30,39 @@ export default function Signin() {
   }
 
   return (
-    <div className="min-h-screen flex items-stretch justify-center p-6 max-[420px]:p-3.5">
-      <div className="w-full max-w-[520px] flex items-stretch">
-        <div className="w-full border border-white/10 bg-white/5 rounded-2xl p-[22px] text-left max-[420px]:p-4">
-          <div className="mb-3.5">
-            <h2 className="m-0 text-xl">Welcome back</h2>
-            <p className="mt-1.5 mb-0 text-sm opacity-80">Use your email and password.</p>
-          </div>
-
-          {error ? (
-            <div className="rounded-xl p-2.5 bg-red-600/20 border border-red-500/40 mb-3" role="alert">
-              {error}
+    <div className="min-h-screen bg-gradient-to-br from-white via-green-50 to-emerald-50 flex items-center justify-center p-6">
+      <div className="w-full max-w-md">
+        {/* Logo Section */}
+        <div className="text-center mb-8">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <div className="bg-gradient-to-br from-emerald-600 to-teal-600 p-3 rounded-xl">
+              <Zap size={32} className="text-white" />
             </div>
-          ) : null}
+          </div>
+          <h1 className="text-3xl font-black text-gray-900">Welcome Back</h1>
+          <p className="text-gray-600 mt-2">Sign in to your AI Recruiter Pro account</p>
+        </div>
 
-          <form className="grid gap-3" onSubmit={onLoginSubmit}>
-            <label className="grid gap-1.5 min-w-0">
-              <span className="text-[13px] opacity-90">Email</span>
+        {/* Error Alert */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
+            <p className="text-red-800 font-medium text-sm">{error}</p>
+          </div>
+        )}
+
+        {/* Main Card */}
+        <div className="bg-white rounded-2xl shadow-xl p-8 border border-emerald-100">
+          <form className="space-y-5" onSubmit={onLoginSubmit}>
+            {/* Email Input */}
+            <div className="group">
+              <label className="block text-sm font-semibold text-gray-900 mb-2">
+                <div className="flex items-center gap-2">
+                  <Mail size={18} className="text-emerald-600" />
+                  Email Address
+                </div>
+              </label>
               <input
-                className="w-full max-w-full min-w-0 rounded-xl px-3 py-2.5 border border-white/20 bg-black/20 text-inherit outline-none focus:border-indigo-400/90 focus:ring-2 focus:ring-indigo-500/20"
+                className="w-full px-4 py-3 rounded-xl border-2 border-emerald-100 bg-emerald-50/50 text-gray-900 outline-none transition-all focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 placeholder-gray-400"
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
                 type="email"
@@ -55,12 +70,18 @@ export default function Signin() {
                 placeholder="name@example.com"
                 required
               />
-            </label>
+            </div>
 
-            <label className="grid gap-1.5 min-w-0">
-              <span className="text-[13px] opacity-90">Password</span>
+            {/* Password Input */}
+            <div className="group">
+              <label className="block text-sm font-semibold text-gray-900 mb-2">
+                <div className="flex items-center gap-2">
+                  <Lock size={18} className="text-emerald-600" />
+                  Password
+                </div>
+              </label>
               <input
-                className="w-full max-w-full min-w-0 rounded-xl px-3 py-2.5 border border-white/20 bg-black/20 text-inherit outline-none focus:border-indigo-400/90 focus:ring-2 focus:ring-indigo-500/20"
+                className="w-full px-4 py-3 rounded-xl border-2 border-emerald-100 bg-emerald-50/50 text-gray-900 outline-none transition-all focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 placeholder-gray-400"
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
                 type="password"
@@ -68,25 +89,77 @@ export default function Signin() {
                 placeholder="Enter your password"
                 required
               />
-            </label>
+            </div>
 
+            {/* Remember Me & Forgot Password */}
+            <div className="flex items-center justify-between text-sm">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" className="w-4 h-4 rounded border-emerald-300 text-emerald-600" />
+                <span className="text-gray-600">Remember me</span>
+              </label>
+              <Link to="#" className="text-emerald-600 hover:text-emerald-700 font-medium">
+                Forgot password?
+              </Link>
+            </div>
+
+            {/* Sign In Button */}
             <button
-              className="mt-1 rounded-xl px-3 py-2.5 border border-indigo-400/60 bg-indigo-500/20 text-inherit cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full mt-6 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white py-3 rounded-xl font-bold text-lg transition-all transform hover:-translate-y-1 shadow-lg hover:shadow-xl disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2"
               type="submit"
               disabled={busy}
             >
-              {busy ? "Signing in…" : "Sign in"}
+              {busy ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Signing in...
+                </>
+              ) : (
+                <>
+                  Sign In <ArrowRight size={20} />
+                </>
+              )}
             </button>
-
-            <p className="mt-0.5 mb-0 text-sm opacity-85">
-              New here?{" "}
-              <Link className="underline bg-transparent p-0" to="/signup">
-                Create an account
-              </Link>
-            </p>
           </form>
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 my-6">
+            <div className="flex-1 h-px bg-gray-200"></div>
+            <span className="text-gray-500 text-sm">or</span>
+            <div className="flex-1 h-px bg-gray-200"></div>
+          </div>
+
+          {/* Social Login Buttons */}
+          <div className="grid grid-cols-2 gap-3">
+            <button className="py-2.5 px-4 rounded-lg border-2 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50 transition text-gray-700 font-medium text-sm">
+              Google
+            </button>
+            <button className="py-2.5 px-4 rounded-lg border-2 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50 transition text-gray-700 font-medium text-sm">
+              GitHub
+            </button>
+          </div>
+        </div>
+
+        {/* Sign Up Link */}
+        <p className="text-center mt-6 text-gray-600">
+          Don't have an account?{" "}
+          <Link to="/signup" className="text-emerald-600 hover:text-emerald-700 font-bold underline">
+            Create one now
+          </Link>
+        </p>
+
+        {/* Footer Links */}
+        <div className="flex justify-center gap-4 mt-6 text-xs text-gray-500">
+          <Link to="#" className="hover:text-emerald-600">Terms</Link>
+          <span>•</span>
+          <Link to="#" className="hover:text-emerald-600">Privacy</Link>
+          <span>•</span>
+          <Link to="#" className="hover:text-emerald-600">Contact</Link>
         </div>
       </div>
+
+      {/* Background Elements */}
+      <div className="fixed top-0 left-0 w-96 h-96 bg-emerald-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 -z-10 animate-pulse"></div>
+      <div className="fixed bottom-0 right-0 w-96 h-96 bg-teal-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 -z-10 animate-pulse" style={{animationDelay: '2s'}}></div>
     </div>
   );
 }

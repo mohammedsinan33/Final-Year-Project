@@ -272,6 +272,199 @@ def send_interview_confirmation_email(candidate_email, job_title, company_name, 
         return False
 
 
+def send_project_submission_email(candidate_email, job_title, company_name):
+    """Send project submission confirmation email"""
+    try:
+        sender_email = os.getenv("SENDER_EMAIL", "your-email@gmail.com")
+        sender_password = os.getenv("EMAIL_PASSWORD", "")
+        
+        if not sender_password:
+            return False
+        
+        subject = f"Project Received - {job_title}"
+        
+        body = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #4CAF50;">✓ Project Successfully Uploaded</h2>
+                    
+                    <p>Dear Candidate,</p>
+                    
+                    <p>Congratulations! We have successfully received your project submission for the <strong>{job_title}</strong> position at <strong>{company_name}</strong>.</p>
+                    
+                    <div style="background-color: #f1f8e9; padding: 20px; border-left: 4px solid #4CAF50; margin: 20px 0; border-radius: 5px;">
+                        <p style="margin: 10px 0;"><strong>Status:</strong> Under Review</p>
+                        <p style="margin: 10px 0;"><strong>Position:</strong> {job_title}</p>
+                        <p style="margin: 10px 0;"><strong>Company:</strong> {company_name}</p>
+                    </div>
+                    
+                    <p>Our team is now carefully reviewing your project submission. We will evaluate:</p>
+                    <ul style="color: #555;">
+                        <li>Code quality and architecture</li>
+                        <li>Problem-solving approach</li>
+                        <li>Implementation completeness</li>
+                        <li>Documentation and clarity</li>
+                    </ul>
+                    
+                    <p>We will get back to you with the evaluation results within the next few days. Thank you for your time and effort!</p>
+                    
+                    <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+                    
+                    <p>Best regards,<br><strong>{company_name}</strong> Recruitment Team</p>
+                    <p style="color: #999; font-size: 12px;">
+                        <strong>Note:</strong> This is an automated email. Please don't reply to this message.
+                    </p>
+                </div>
+            </body>
+        </html>
+        """
+        
+        message = MIMEMultipart("alternative")
+        message["Subject"] = subject
+        message["From"] = sender_email
+        message["To"] = candidate_email
+        message.attach(MIMEText(body, "html"))
+        
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, candidate_email, message.as_string())
+        
+        print(f"✓ Project submission email sent to {candidate_email}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Project submission email failed: {str(e)}")
+        return False
+
+
+def send_interview_scheduling_email(candidate_email, job_title, company_name, scheduling_link):
+    """Send email asking candidate to schedule their interview"""
+    try:
+        sender_email = os.getenv("SENDER_EMAIL", "your-email@gmail.com")
+        sender_password = os.getenv("EMAIL_PASSWORD", "")
+        
+        if not sender_password:
+            return False
+        
+        subject = f"Schedule Your Interview - {job_title}"
+        
+        body = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #4CAF50;">🎉 Great News!</h2>
+                    
+                    <p>Dear Candidate,</p>
+                    
+                    <p>We are pleased to inform you that you have been <strong>selected for an interview</strong> for the position of:</p>
+                    <h3 style="color: #2196F3;">{job_title}</h3>
+                    <p style="color: #666;">at <strong>{company_name}</strong></p>
+                    
+                    <p>Your project submission was excellent! Now we'd like to move forward with a video interview to learn more about you.</p>
+                    
+                    <div style="background-color: #e8f5e9; padding: 20px; border-left: 4px solid #4CAF50; margin: 20px 0; border-radius: 5px;">
+                        <p style="margin: 0; font-size: 16px;"><strong>Please schedule your interview at your convenience:</strong></p>
+                    </div>
+                    
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{scheduling_link}" style="background-color: #4CAF50; color: white; padding: 14px 32px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold; font-size: 16px;">
+                            Schedule Your Interview →
+                        </a>
+                    </div>
+                    
+                    <p style="color: #666;">Or copy this link:</p>
+                    <p style="word-break: break-all; color: #2196F3; font-size: 12px;">
+                        <a href="{scheduling_link}" style="color: #2196F3;">{scheduling_link}</a>
+                    </p>
+                    
+                    <div style="background-color: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin: 20px 0; border-radius: 5px;">
+                        <p style="margin: 0;"><strong>What to expect:</strong></p>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li>Video call interview (approximately 30-45 minutes)</li>
+                            <li>Discussion about your project and experience</li>
+                            <li>Questions about the role and your fit with {company_name}</li>
+                        </ul>
+                    </div>
+                    
+                    <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+                    
+                    <p>We're excited to speak with you soon!</p>
+                    <p style="color: #666;">Best regards,<br><strong>{company_name}</strong> Recruitment Team</p>
+                    <p style="color: #999; font-size: 12px;">
+                        <strong>Note:</strong> This is an automated email. Please don't reply to this message.
+                    </p>
+                </div>
+            </body>
+        </html>
+        """
+        
+        message = MIMEMultipart("alternative")
+        message["Subject"] = subject
+        message["From"] = sender_email
+        message["To"] = candidate_email
+        message.attach(MIMEText(body, "html"))
+        
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, candidate_email, message.as_string())
+        
+        print(f"✓ Interview scheduling email sent to {candidate_email}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Interview scheduling email failed: {str(e)}")
+        return False
+
+
+def send_interview_link_email(candidate_email, job_title, company_name, interview_link):
+    """Send the final interview link to the candidate"""
+    try:
+        sender_email = os.getenv("SENDER_EMAIL", "your-email@gmail.com")
+        sender_password = os.getenv("EMAIL_PASSWORD", "")
+        
+        if not sender_password:
+            return False
+            
+        subject = f"Your Interview Link - {job_title} at {company_name}"
+        body = f"""
+        <html>
+            <body>
+                <h2>Your interview for {job_title} is ready!</h2>
+                <p>Hello,</p>
+                <p>Your scheduled interview for {company_name} is coming up. Please use the secure link below to join.</p>
+                
+                <h3 style="color: #2563eb; margin: 20px 0;">Rules & Instructions:</h3>
+                <ul>
+                    <li>The room will only open exactly at your scheduled time.</li>
+                    <li><strong style="color: red;">You have a maximum of 15 minutes to join after the scheduled start time.</strong></li>
+                    <li>If you try to enter more than 15 minutes late, your interview will be automatically cancelled.</li>
+                </ul>
+                
+                <a href="{interview_link}" style="display:inline-block; padding: 12px 24px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 6px; margin: 20px 0;">
+                    Join Interview Room
+                </a>
+            </body>
+        </html>
+        """
+        
+        msg = MIMEMultipart()
+        msg['From'] = f"Recruitment Team <{sender_email}>"
+        msg['To'] = candidate_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'html'))
+        
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Error sending interview link: {str(e)}")
+        return False
+
+
 async def send_all_pending_notifications():
     """Check DB and send all pending shortlist/rejection emails"""
     SUPABASE_URL = os.getenv("SUPABASE_URL")

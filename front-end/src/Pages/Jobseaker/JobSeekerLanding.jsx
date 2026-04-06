@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { uploadResumeAndAnalyze, getCurrentUser, listPublicJobOpenings, logout } from "../../Services/database";
 import { requireSupabase } from "../../lib/supabaseClient";
+import { LogOut, Search, Briefcase, MapPin, DollarSign, Clock, FileText } from "lucide-react";
 import JobHeader from "../../Components/JobHeader";
 import JobSearchBar from "../../Components/JobSearchBar";
 import JobListPanel from "../../Components/JobListPanel";
@@ -13,10 +14,8 @@ export default function JobSeekerLanding() {
   const nav = useNavigate();
   const [user, setUser] = useState(null);
   const [loadingUser, setLoadingUser] = useState(true);
-
   const [remoteJobs, setRemoteJobs] = useState([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
-
   const [applyOpen, setApplyOpen] = useState(false);
   const [buildOpen, setBuildOpen] = useState(false);
   const [resumeFile, setResumeFile] = useState(null);
@@ -46,6 +45,7 @@ export default function JobSeekerLanding() {
   const [taskLinks, setTaskLinks] = useState({});
   const [taskStatuses, setTaskStatuses] = useState({});
 
+  // Helper functions
   function updateListField(field, index, value) {
     setResumeDraft((s) => {
       const next = [...s[field]];
@@ -87,14 +87,13 @@ export default function JobSeekerLanding() {
     try {
       localStorage.setItem(appliedStorageKey(userId), JSON.stringify(items));
     } catch {
-      // ignore storage errors
+      // ignore
     }
   }
 
   async function resolveRecruiterId(jobId, recruiterId) {
     if (recruiterId) return recruiterId;
     if (!jobId) return "";
-
     try {
       const supabase = requireSupabase();
       const { data, error } = await supabase
@@ -129,7 +128,6 @@ export default function JobSeekerLanding() {
         throw new Error("Recruiter ID is missing for this job. Please open a job posted in the system.");
       }
 
-      // Send resume directly to backend for analysis
       const result = await uploadResumeAndAnalyze({
         file: resumeFile,
         jobId,
@@ -137,7 +135,6 @@ export default function JobSeekerLanding() {
         candidateId,
       });
 
-      console.log("Resume analyzed and saved:", result);
       setUploadUrl("Analyzed and saved!");
 
       const jobIdStr = String(jobId);
@@ -178,8 +175,8 @@ export default function JobSeekerLanding() {
         achievements: normalizeList(resumeDraft.achievements),
       };
 
-      const result = await buildResume(payload);
-      setBuildUrl(result.resume_url || "");
+      // const result = await buildResume(payload);
+      // setBuildUrl(result.resume_url || "");
     } catch (err) {
       setBuildError(err?.message || "Could not build resume.");
     } finally {
@@ -197,9 +194,7 @@ export default function JobSeekerLanding() {
         if (mounted) setLoadingUser(false);
       }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
   useEffect(() => {
@@ -222,9 +217,7 @@ export default function JobSeekerLanding() {
         if (mounted) setLoadingJobs(false);
       }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
   useEffect(() => {
@@ -233,7 +226,6 @@ export default function JobSeekerLanding() {
 
     try {
       const supabase = requireSupabase();
-
       channel = supabase
         .channel("jobseeker-openings")
         .on(
@@ -245,13 +237,13 @@ export default function JobSeekerLanding() {
               const items = await listPublicJobOpenings();
               if (!canceled) setRemoteJobs(items);
             } catch {
-              // ignore: keep current list/fallback
+              // ignore
             }
           }
         )
         .subscribe();
     } catch {
-      // Supabase not configured or realtime not available.
+      // Supabase not configured
     }
 
     return () => {
@@ -315,27 +307,23 @@ export default function JobSeekerLanding() {
 
   useEffect(() => {
     if (!applyOpen) return;
-
     function onKeyDown(e) {
       if (e.key === "Escape") {
         setApplyOpen(false);
         setResumeFile(null);
       }
     }
-
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [applyOpen]);
 
   useEffect(() => {
     if (!buildOpen) return;
-
     function onKeyDown(e) {
       if (e.key === "Escape") {
         setBuildOpen(false);
       }
     }
-
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [buildOpen]);
@@ -348,50 +336,159 @@ export default function JobSeekerLanding() {
   const displayName = firstName || user?.fullName || user?.email;
 
   return (
-    <div className="min-h-screen p-6 flex justify-center max-[980px]:p-3.5">
-      <div className="w-full max-w-[1150px] grid grid-rows-[auto_1fr] gap-4">
-        <JobHeader
-          displayName={displayName}
-          onLogout={() => {
-            (async () => {
-              await logout();
-              nav("/signin", { replace: true });
-            })();
-          }}
-        />
+    <div className="min-h-screen bg-gradient-to-br from-white via-green-50 to-emerald-50">
+      {/* Navbar */}
+      <nav className="sticky top-0 z-40 bg-white/80 backdrop-blur-md shadow-sm border-b border-emerald-100">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="bg-gradient-to-br from-emerald-600 to-teal-600 p-2 rounded-lg">
+              <Briefcase size={24} className="text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-emerald-700">AI Recruiter</h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-gray-700 font-medium">Welcome, <span className="text-emerald-600">{displayName}</span></span>
+            <button
+              onClick={() => {
+                (async () => {
+                  await logout();
+                  nav("/signin", { replace: true });
+                })();
+              }}
+              className="flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg font-semibold transition"
+            >
+              <LogOut size={18} /> Sign Out
+            </button>
+          </div>
+        </div>
+      </nav>
 
-        <JobSearchBar roleQuery={roleQuery} setRoleQuery={setRoleQuery} />
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        {/* Header */}
+        <div className="mb-8">
+          <h2 className="text-4xl font-black text-gray-900 mb-2">Explore Opportunities</h2>
+          <p className="text-xl text-gray-600">Browse job openings and apply with your resume</p>
+        </div>
 
-        <div className="grid grid-cols-[1fr_1.25fr] gap-4 items-start max-[980px]:grid-cols-1">
-          <JobListPanel
-            filteredJobs={filteredJobs}
-            selectedJobId={selectedJob?.id ? String(selectedJob.id) : ""}
-            onSelect={setSelectedId}
-          />
+        {/* Search Bar */}
+        <div className="mb-8 relative">
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-emerald-600" size={20} />
+            <input
+              type="text"
+              value={roleQuery}
+              onChange={(e) => setRoleQuery(e.target.value)}
+              placeholder="Search jobs by role (e.g., Frontend Developer, Data Scientist)..."
+              className="w-full pl-12 pr-6 py-4 rounded-xl border-2 border-emerald-200 bg-white text-gray-900 outline-none transition-all focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
+            />
+          </div>
+        </div>
 
-          <JobDetailPanel
-            selectedJob={selectedJob}
-            hasApplied={hasApplied}
-            hasTask={hasTask}
-            taskDescription={taskDescription}
-            taskLinkDrafts={taskLinkDrafts}
-            taskLinks={taskLinks}
-            taskStatuses={taskStatuses}
-            selectedJobId={selectedJobId}
-            selectedRecruiterId={selectedRecruiterId}
-            onTaskDraftChange={onTaskDraftChange}
-            onTaskSubmit={onTaskSubmit}
-            onApplyClick={() => {
-              if (!canApplyToJob) return;
-              setApplyOpen(true);
-              setResumeFile(null);
-              setUploadError("");
-              setUploadUrl("");
-            }}
-          />
+        {/* Jobs Grid */}
+        <div className="grid lg:grid-cols-3 gap-8">
+          {/* Left: Job List */}
+          <div className="lg:col-span-1">
+            <div className="sticky top-24 max-h-96 overflow-y-auto">
+              <h3 className="text-xl font-bold text-gray-900 mb-4">Available Positions ({filteredJobs.length})</h3>
+              {loadingJobs ? (
+                <div className="p-8 text-center text-gray-500">Loading jobs...</div>
+              ) : filteredJobs.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">No jobs found</div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredJobs.map((job) => (
+                    <button
+                      key={job.id}
+                      onClick={() => setSelectedId(String(job.id))}
+                      className={`w-full text-left p-4 rounded-xl border-2 transition-all transform hover:scale-105 ${
+                        String(job.id) === selectedId
+                          ? "border-emerald-600 bg-emerald-50 shadow-md"
+                          : "border-gray-200 bg-white hover:border-emerald-200"
+                      }`}
+                    >
+                      <h4 className="font-bold text-gray-900">{job.title || job.role_title}</h4>
+                      <p className="text-sm text-gray-600 mt-1">{job.company_name}</p>
+                      <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
+                        <MapPin size={14} /> {job.location || "Remote"}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right: Job Details */}
+          <div className="lg:col-span-2">
+            {selectedJob ? (
+              <div className="bg-white rounded-2xl shadow-xl p-8 border border-emerald-100">
+                {/* Job Header */}
+                <div className="mb-6 pb-6 border-b border-emerald-100">
+                  <h1 className="text-4xl font-black text-gray-900 mb-2">{selectedJob.title || selectedJob.role_title}</h1>
+                  <p className="text-xl text-emerald-600 font-semibold">{selectedJob.company_name}</p>
+                  <div className="flex flex-wrap gap-4 mt-4 text-gray-600">
+                    <div className="flex items-center gap-2">
+                      <MapPin size={20} className="text-emerald-600" />
+                      {selectedJob.location || "Remote"}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <DollarSign size={20} className="text-emerald-600" />
+                      {selectedJob.salary_range || "Competitive"}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock size={20} className="text-emerald-600" />
+                      {selectedJob.employment_type || "Full-time"}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Job Description */}
+                <div className="mb-6">
+                  <h3 className="text-xl font-bold text-gray-900 mb-3">About This Role</h3>
+                  <p className="text-gray-600 leading-relaxed">{selectedJob.description || "No description available"}</p>
+                </div>
+
+                {/* Requirements */}
+                {selectedJob.requirements && (
+                  <div className="mb-6">
+                    <h3 className="text-xl font-bold text-gray-900 mb-3">Requirements</h3>
+                    <p className="text-gray-600 leading-relaxed">{selectedJob.requirements}</p>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex flex-wrap gap-3 pt-6 border-t border-emerald-100">
+                  {!hasApplied ? (
+                    <button
+                      onClick={() => {
+                        if (!canApplyToJob) return;
+                        setApplyOpen(true);
+                        setResumeFile(null);
+                        setUploadError("");
+                        setUploadUrl("");
+                      }}
+                      className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white py-3 rounded-xl font-bold transition transform hover:-translate-y-1 shadow-lg flex items-center justify-center gap-2"
+                    >
+                      <FileText size={20} /> Apply Now
+                    </button>
+                  ) : (
+                    <div className="flex-1 bg-green-100 border-2 border-green-600 text-green-600 py-3 rounded-xl font-bold text-center">
+                      ✓ Applied
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl shadow-xl p-12 text-center border border-emerald-100">
+                <p className="text-gray-500 text-lg">Select a job to view details</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
+      {/* Apply Modal */}
       <ApplyModal
         open={applyOpen}
         selectedJob={selectedJob}
@@ -413,6 +510,7 @@ export default function JobSeekerLanding() {
         }}
       />
 
+      {/* Resume Builder Modal */}
       <ResumeBuilderModal
         open={buildOpen}
         buildBusy={buildBusy}

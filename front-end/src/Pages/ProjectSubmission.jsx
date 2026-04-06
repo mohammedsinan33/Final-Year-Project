@@ -13,6 +13,11 @@ const ProjectSubmission = () => {
   const appId = searchParams.get("app_id");
   const jobId = searchParams.get("job_id");
 
+  if (!appId) {
+    setError("Missing application id in URL");
+    return;
+  }
+
   const [formData, setFormData] = useState({
     repositoryLink: "",
     hostedLink: "",

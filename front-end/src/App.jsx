@@ -16,13 +16,14 @@ import ProjectScreen from "./Pages/ProjectScreen";
 import InterviewScheduler from "./Pages/InterviewScheduler";
 import ProjectSubmission from "./Pages/ProjectSubmission";
 import "./App.css";
+import Home from "./Pages/HomePage";
 
 const App = () => {
   return (
     <AuthProvider>
       <Router>
         <Routes>
-          <Route path="/" element={<AnalyzerPage />} />
+          <Route path="/" element={<Home />} />
           <Route path="/signin" element={<Signin />} />
           <Route path="/signup" element={<Signup />} />
 
@@ -65,6 +66,7 @@ const App = () => {
           {/* Other Routes */}
           <Route path="/interview" element={<InterviewScreen />} />
           <Route path="/tester" element={<InterviewTester />} />
+          <Route path="/interview-tester" element={<InterviewTester />} />
           <Route path="/proctored-report" element={<ProctoredReport />} />
           <Route path="/finalrport" element={<Finalrport />} />
           <Route path="/project" element={<ProjectScreen />} />

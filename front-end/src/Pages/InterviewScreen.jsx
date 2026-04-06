@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Conversation } from "@11labs/client";
+import InterviewReview from "../Components/InterviewReview";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 const InterviewScreen = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const cameraRef = useRef(null);
   const conversationRef = useRef(null);
 
@@ -20,6 +22,8 @@ const InterviewScreen = () => {
   const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
   const [isFsRequired, setIsFsRequired] = useState(true);
   const [hasStarted, setHasStarted] = useState(false);
+  const [showReview, setShowReview] = useState(false);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
   const aiAvatar = "https://img.freepik.com/free-vector/chatbot-artificial-intelligence-concept_23-2148180470.jpg";
 
@@ -49,7 +53,37 @@ const InterviewScreen = () => {
     localStorage.setItem(reportKeyRef.current, JSON.stringify(finalAlerts));
     localStorage.setItem("lastProctorSessionId", sessionIdRef.current);
 
-    navigate(`/finalrport?sessionId=${encodeURIComponent(sessionIdRef.current)}`);
+    // Show review component instead of redirecting immediately
+    setShowReview(true);
+  };
+
+  const handleSkipReview = () => {
+    navigate("/");
+  };
+
+  const handleSubmitReview = async (reviewData) => {
+    setIsSubmittingReview(true);
+    try {
+      const appId = searchParams.get("app_id");
+      
+      // Send review to backend
+      await fetch(`${API_BASE_URL}/interview/submit-review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          application_id: appId,
+          session_id: sessionIdRef.current,
+          rating: reviewData.rating,
+          feedback: reviewData.feedback,
+        })
+      }).catch(() => {
+        // Silently fail - still navigate anyway
+      });
+
+      navigate("/");
+    } finally {
+      setIsSubmittingReview(false);
+    }
   };
 
   const enterFullscreenAndStart = async () => {
@@ -71,28 +105,39 @@ const InterviewScreen = () => {
       setIsFullscreen(inFs);
 
       // If interview has begun and user exits fullscreen, end immediately.
-      if (hasStarted && !inFs) {
+      if (hasStarted && !inFs && !showReview) {
         endInterview("Candidate exited fullscreen during interview");
       }
     };
 
     document.addEventListener("fullscreenchange", onFsChange);
     return () => document.removeEventListener("fullscreenchange", onFsChange);
-  }, [hasStarted]);
+  }, [hasStarted, showReview]);
 
   // Start interview services only after fullscreen is accepted.
   useEffect(() => {
-    if (!hasStarted) return;
+    if (!hasStarted || showReview) return;
 
     let isMounted = true;
 
     const initInterview = async () => {
       try {
-        const contextData = JSON.parse(localStorage.getItem("interviewContext") || "{}");
+        const appId = searchParams.get("app_id");
+        
+        let requestBody = {
+          application_id: appId
+        };
+        
+        if (!appId) {
+          const contextData = JSON.parse(localStorage.getItem("interviewContext") || "{}");
+          requestBody.repo_analysis = contextData.repo_analysis;
+          requestBody.resume_analysis = contextData.resume_analysis;
+        }
+
         const response = await fetch(`${API_BASE_URL}/interview/prepare-interview`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(contextData),
+          body: JSON.stringify(requestBody)
         });
 
         if (!response.ok) {
@@ -100,13 +145,37 @@ const InterviewScreen = () => {
           throw new Error(`Backend Error (${response.status}): ${errorText}`);
         }
 
-        const { agent_id } = await response.json();
-        if (!agent_id || !isMounted) return;
+        const { agent_id, context } = await response.json();
+        const agentId = context.agent_id;
+        const dynamicPrompt = context.prompt;
+        const backendSessionId = context.session_id;
 
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        if (!agentId || !dynamicPrompt || !isMounted) return;
+
+        if (backendSessionId) {
+          sessionIdRef.current = backendSessionId;
+          reportKeyRef.current = "proctorReport:" + backendSessionId;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        if (!isMounted) return;
+
+        if (conversationRef.current) {
+          const old = conversationRef.current;
+          conversationRef.current = null;
+          await old.endSession().catch(() => {});
+        }
 
         const conversation = await Conversation.startSession({
-          agentId: agent_id,
+          agentId: agentId,
+          overrides: {
+            agent: {
+              prompt: {
+                prompt: dynamicPrompt + "\n\nPrompt-Nonce: " + Date.now()
+              },
+              firstMessage: "Hello, I am Sarah. Nice to meet you. Please introduce yourself briefly."
+            }
+          },
           onConnect: () => {
             if (isMounted) {
               setIsConnecting(false);
@@ -116,8 +185,6 @@ const InterviewScreen = () => {
           onDisconnect: () => {
             if (isMounted) setIsInterviewActive(false);
           },
-
-          
           onMessage: (message) => {
             if (!isMounted) return;
 
@@ -130,18 +197,18 @@ const InterviewScreen = () => {
 
             setTranscript((prev) => {
               const next = [...prev, { role, text }];
-              localStorage.setItem(`interviewTranscript:${sessionIdRef.current}`, JSON.stringify(next));
+              localStorage.setItem("interviewTranscript:" + sessionIdRef.current, JSON.stringify(next));
               return next;
             });
 
-            fetch(`${API_BASE_URL}/interview/session/turn`, {
+            fetch(API_BASE_URL + "/interview/session/turn", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 session_id: sessionIdRef.current,
                 role,
-                text,
-              }),
+                text
+              })
             }).catch(() => {});
           },
           onError: (error) => {
@@ -149,7 +216,7 @@ const InterviewScreen = () => {
             if (!errorStr.toLowerCase().includes("closing")) {
               alert("Interview error: " + errorStr);
             }
-          },
+          }
         });
 
         if (isMounted) conversationRef.current = conversation;
@@ -167,10 +234,10 @@ const InterviewScreen = () => {
         conversationRef.current = null;
       }
     };
-  }, [hasStarted]);
+  }, [hasStarted, showReview]);
 
   useEffect(() => {
-    if (!hasStarted) return;
+    if (!hasStarted || showReview) return;
 
     const initCamera = async () => {
       const screenChecked = localStorage.getItem("screenShareChecked") === "true";
@@ -180,26 +247,21 @@ const InterviewScreen = () => {
         return;
       }
 
-      // consume once so user can't skip tester on future sessions
       localStorage.removeItem("screenShareChecked");
 
       try {
         const camStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         if (cameraRef.current) cameraRef.current.srcObject = camStream;
-        // removed: await navigator.mediaDevices.getDisplayMedia({ video: true });
       } catch {
         alert("Camera/Microphone access is MANDATORY");
       }
     };
 
     initCamera();
-  }, [hasStarted, navigate]);
+  }, [hasStarted, showReview, navigate]);
 
-  // Keep your existing proctor loop useEffect, but also guard with hasStarted.
-
-  // ADD this missing monitor loop useEffect
   useEffect(() => {
-    if (!hasStarted) return;
+    if (!hasStarted || showReview) return;
 
     const interval = setInterval(async () => {
       if (!cameraRef.current || !cameraRef.current.srcObject) return;
@@ -249,7 +311,17 @@ const InterviewScreen = () => {
     }, 4000);
 
     return () => clearInterval(interval);
-  }, [hasStarted]);
+  }, [hasStarted, showReview]);
+
+  if (showReview) {
+    return (
+      <InterviewReview
+        onSkip={handleSkipReview}
+        onSubmit={handleSubmitReview}
+        isSubmitting={isSubmittingReview}
+      />
+    );
+  }
 
   return (
     <div className="relative h-screen bg-gray-900 overflow-hidden flex flex-col">

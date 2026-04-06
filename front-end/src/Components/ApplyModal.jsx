@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { Upload, FileText, Plus, X } from "lucide-react";
 
 export default function ApplyModal({
   open,
@@ -12,101 +12,108 @@ export default function ApplyModal({
   onUpload,
   onBuildClick,
 }) {
-  const fileInputRef = useRef(null);
-
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/55 grid place-items-center p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Apply options"
-      onMouseDown={(e) => {
-        if (e.target !== e.currentTarget) return;
-        onClose();
-      }}
-    >
-      <div className="w-full max-w-[560px] max-h-[85vh] rounded-2xl border border-white/10 bg-black/98 overflow-hidden flex flex-col">
-        <div className="flex items-start justify-between gap-3 px-3.5 py-3 border-b border-white/10">
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-emerald-600 to-emerald-700 px-8 py-6 flex justify-between items-center">
           <div>
-            <div className="text-base font-black">Apply to {selectedJob?.title || "this job"}</div>
-            <div className="mt-1 text-xs opacity-80">Choose how you want to add your resume.</div>
+            <h2 className="text-2xl font-bold text-white">Apply for Position</h2>
+            <p className="text-emerald-100 mt-1">{selectedJob?.title || selectedJob?.role_title}</p>
           </div>
           <button
-            type="button"
-            className="border-none bg-transparent text-inherit text-2xl leading-none p-1 opacity-85 hover:opacity-100"
-            aria-label="Close"
             onClick={onClose}
+            className="text-white hover:bg-emerald-700/50 p-2 rounded-lg transition"
           >
-            ×
+            <X size={24} />
           </button>
         </div>
 
-        <div className="p-3.5 overflow-auto">
-          <div className="grid grid-cols-1 gap-2.5">
-            <button
-              type="button"
-              className="w-full text-left rounded-xl px-3 py-3 border border-white/10 bg-white/5 text-inherit cursor-pointer hover:bg-white/10"
-              onClick={onBuildClick}
-            >
-              Build a resume
-            </button>
-            <button
-              type="button"
-              className="w-full text-left rounded-xl px-3 py-3 border border-indigo-500/55 bg-indigo-500/15 text-inherit cursor-pointer hover:bg-indigo-500/20"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              Upload resume
-            </button>
+        {/* Body */}
+        <div className="p-8 space-y-6">
+          {/* Upload Section */}
+          <div className="border-2 border-dashed border-emerald-300 rounded-xl p-8 bg-emerald-50 text-center hover:bg-emerald-100 transition">
+            <div className="flex flex-col items-center gap-3 mb-4">
+              <div className="bg-emerald-100 p-3 rounded-full">
+                <Upload className="text-emerald-600" size={32} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Upload Your Resume</h3>
+                <p className="text-sm text-gray-600 mt-1">PDF, DOC, or DOCX format</p>
+              </div>
+            </div>
+
             <input
-              ref={fileInputRef}
               type="file"
+              id="resume-upload"
               accept=".pdf,.doc,.docx"
-              style={{ display: "none" }}
-              onChange={(e) => {
-                const f = e.target.files?.[0] || null;
-                onResume(f);
-              }}
+              onChange={(e) => onResume(e.target.files?.[0] || null)}
+              className="hidden"
             />
+            <label htmlFor="resume-upload" className="cursor-pointer">
+              <div className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-lg font-semibold transition transform hover:-translate-y-1">
+                <Upload size={18} /> Choose File
+              </div>
+            </label>
+
+            {resumeFile && (
+              <div className="mt-4 p-3 bg-white rounded-lg border-2 border-emerald-300">
+                <p className="text-sm text-emerald-700 font-semibold">
+                  ✓ Selected: {resumeFile.name}
+                </p>
+              </div>
+            )}
           </div>
 
-          <div className="mt-3 grid grid-cols-[110px_1fr] gap-2.5 items-center">
-            <div className="text-xs opacity-80">Selected file:</div>
-            <div className="text-sm opacity-95 break-words">{resumeFile ? resumeFile.name : "None"}</div>
-          </div>
-
+          {/* Error Message */}
           {uploadError && (
-            <div className="mt-2.5 text-xs p-2 rounded-lg bg-red-600/20 border border-red-600/35">
-              {uploadError}
+            <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-lg">
+              <p className="text-red-800 font-semibold">Error: {uploadError}</p>
             </div>
           )}
-          {uploadUrl && (
-            <div className="mt-2.5 text-xs opacity-85">
-              Stored at:{" "}
-              <a className="text-indigo-400 no-underline hover:underline" href={uploadUrl} target="_blank" rel="noreferrer">
-                Open resume
-              </a>
-            </div>
-          )}
-        </div>
 
-        <div className="px-3.5 py-3 border-t border-white/10 flex justify-end gap-2.5">
-          <button
-            type="button"
-            className="rounded-xl px-3 py-2.5 border border-white/10 bg-white/5 text-inherit cursor-pointer text-sm hover:bg-white/10"
-            onClick={onClose}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="rounded-xl px-3 py-2.5 border border-indigo-500/55 bg-indigo-500/15 text-inherit cursor-pointer text-sm disabled:opacity-55"
-            disabled={!resumeFile || uploadBusy}
-            onClick={onUpload}
-          >
-            {uploadBusy ? "Uploading..." : "Upload"}
-          </button>
+          {/* Success Message */}
+          {uploadUrl && (
+            <div className="p-4 bg-green-50 border-l-4 border-green-500 rounded-lg">
+              <p className="text-green-800 font-semibold">✓ {uploadUrl}</p>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex flex-col gap-3 pt-4">
+            <button
+              onClick={onUpload}
+              disabled={!resumeFile || uploadBusy}
+              className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white py-3 rounded-xl font-bold transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {uploadBusy ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <FileText size={20} /> Upload & Apply
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={onBuildClick}
+              className="w-full bg-white border-2 border-emerald-300 hover:bg-emerald-50 text-emerald-700 py-3 rounded-xl font-bold transition flex items-center justify-center gap-2"
+            >
+              <Plus size={20} /> Build Resume Instead
+            </button>
+
+            <button
+              onClick={onClose}
+              className="w-full px-4 py-2 text-gray-600 hover:text-gray-900 font-semibold transition"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
     </div>

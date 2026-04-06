@@ -13,6 +13,10 @@ from app.utils.scheduler import (
     send_pending_application_received_emails,
     send_pending_shortlist_emails,
     send_pending_interview_confirmation_emails,
+    send_pending_project_submission_emails,
+    send_pending_project_analysis,
+    send_pending_alignment_score_emails,
+    send_pending_interview_links,  # ← ADD THIS LINE
 )
 
 # Background job wrapper (thread-safe)
@@ -22,10 +26,13 @@ def email_scheduler_job():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
-        # Run all three email jobs
+        # Run all email and analysis jobs
+        loop.run_until_complete(send_pending_project_analysis())
+        loop.run_until_complete(send_pending_alignment_score_emails())  # ADD THIS LINE
         loop.run_until_complete(send_pending_application_received_emails())
         loop.run_until_complete(send_pending_shortlist_emails())
         loop.run_until_complete(send_pending_interview_confirmation_emails())
+        loop.run_until_complete(send_pending_interview_links())  # ADD THIS LINE
         
         loop.close()
     except Exception as e:
@@ -49,6 +56,9 @@ async def lifespan(app: FastAPI):
     print("  - Application received emails")
     print("  - Shortlist/rejection emails")
     print("  - Interview confirmation emails")
+    print("  - Project submission emails")
+    print("  - Project analysis emails")
+    print("  - Interview links")  # ← ADD THIS LINE
     
     yield
     

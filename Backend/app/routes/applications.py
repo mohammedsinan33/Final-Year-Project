@@ -7,8 +7,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from app.utils.resume import extract_resume_text
+from supabase import create_client
 from app.llm_client import analyze_resume_with_llm
-from app.utils.mails import send_shortlist_email, send_application_received_email, send_interview_confirmation_email
+from app.utils.mails import send_shortlist_email
+
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -372,101 +374,81 @@ async def send_shortlist_notifications():
         traceback.print_exc()
         return {"success": False, "error": str(e)}, 500
 
+@router.post("/submit-project")
+async def submit_project_details(payload: Dict[str, Any]):
+    """Submit project details for a job application"""
+    try:
+        app_id = payload.get("app_id")
+        project_repository_link = payload.get("project_repository_link")
+        project_hosted_link = payload.get("project_hosted_link")
+        project_description = payload.get("project_description")
+
+        if not app_id:
+            raise HTTPException(status_code=400, detail="app_id is required")
+        if not project_repository_link:
+            raise HTTPException(status_code=400, detail="project_repository_link is required")
+        if not project_hosted_link:
+            raise HTTPException(status_code=400, detail="project_hosted_link is required")
+        if not project_description:
+            raise HTTPException(status_code=400, detail="project_description is required")
+
+        from datetime import datetime, timezone
+        update_payload = {
+            "project_repository_link": project_repository_link,
+            "project_hosted_link": project_hosted_link,
+            "project_description": project_description,
+            "project_submitted": True,
+            "project_submitted_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        _sb_patch("job_applications", {"id": f"eq.{app_id}"}, update_payload)
+        return {"ok": True, "message": "Project details submitted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERROR submitting project: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/send-shortlist-notifications")
 async def send_shortlist_notifications_manual():
     """Manual endpoint to send pending emails"""
     from app.utils.mails import send_all_pending_notifications
     return await send_all_pending_notifications()
 
-@router.post("/send-application-received-email")
-async def send_application_received(app_id: str):
-    """Send application received confirmation email"""
-    try:
-        supabase = create_client(SUPABASE_URL, SERVICE_ROLE_KEY)
-        
-        # Get application details
-        app = supabase.table("job_applications").select(
-            "id, candidate_id, job_id, app_users!job_applications_candidate_id_fkey(email)"
-        ).eq("id", app_id).single().execute()
-        
-        if not app.data:
-            return {"success": False, "error": "Application not found"}
-        
-        # Get job details
-        job = supabase.table("recruiter_job_openings").select(
-            "role_title, recruiter_id"
-        ).eq("id", app.data["job_id"]).single().execute()
-        
-        if not job.data:
-            return {"success": False, "error": "Job not found"}
-        
-        # Get company details
-        company = supabase.table("recruiter_profiles").select(
-            "company_name"
-        ).eq("user_id", job.data["recruiter_id"]).execute()
-        
-        company_name = "Our Company"
-        if company.data and len(company.data) > 0:
-            company_name = company.data[0].get("company_name", "Our Company")
-        
-        candidate_email = app.data.get("app_users", {}).get("email")
-        job_title = job.data.get("role_title", "Position")
-        
-        if send_application_received_email(candidate_email, job_title, company_name):
-            return {"success": True, "message": "Application received email sent"}
-        else:
-            return {"success": False, "error": "Failed to send email"}
-            
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+@router.post("/schedule-interview")
+async def schedule_interview(payload: dict):
+    """Schedule interview and update interview_scheduled_date in database"""
+    app_id = payload.get("app_id")
+    scheduled_date_time = payload.get("scheduled_date_time")
 
+    if not app_id or not scheduled_date_time:
+        raise HTTPException(status_code=400, detail="Missing app_id or scheduled_date_time")
 
-@router.post("/send-interview-confirmation-email")
-async def send_interview_confirmation(app_id: str):
-    """Send interview scheduled confirmation email"""
     try:
-        supabase = create_client(SUPABASE_URL, SERVICE_ROLE_KEY)
-        
-        # Get application details with interview scheduled date
-        app = supabase.table("job_applications").select(
-            "id, candidate_id, job_id, interview_scheduled_date, app_users!job_applications_candidate_id_fkey(email)"
-        ).eq("id", app_id).single().execute()
-        
-        if not app.data:
-            return {"success": False, "error": "Application not found"}
-        
-        if not app.data.get("interview_scheduled_date"):
-            return {"success": False, "error": "Interview not scheduled"}
-        
-        # Get job details
-        job = supabase.table("recruiter_job_openings").select(
-            "role_title, recruiter_id"
-        ).eq("id", app.data["job_id"]).single().execute()
-        
-        if not job.data:
-            return {"success": False, "error": "Job not found"}
-        
-        # Get company details
-        company = supabase.table("recruiter_profiles").select(
-            "company_name"
-        ).eq("user_id", job.data["recruiter_id"]).execute()
-        
-        company_name = "Our Company"
-        if company.data and len(company.data) > 0:
-            company_name = company.data[0].get("company_name", "Our Company")
-        
-        candidate_email = app.data.get("app_users", {}).get("email")
-        job_title = job.data.get("role_title", "Position")
-        
-        # Parse scheduled datetime
-        scheduled_dt = app.data.get("interview_scheduled_date")
-        scheduled_date = scheduled_dt.split("T")[0] if "T" in scheduled_dt else scheduled_dt
-        scheduled_time = scheduled_dt.split("T")[1][:5] if "T" in scheduled_dt else "10:00"
-        
-        if send_interview_confirmation_email(candidate_email, job_title, company_name, scheduled_date, scheduled_time):
-            return {"success": True, "message": "Interview confirmation email sent"}
-        else:
-            return {"success": False, "error": "Failed to send email"}
-            
+        SUPABASE_URL = os.getenv("SUPABASE_URL")
+        SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            raise HTTPException(status_code=500, detail="Missing Supabase credentials")
+
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+        # Update the job_applications table with interview_scheduled_date
+        response = supabase.table("job_applications").update({
+            "interview_scheduled_date": scheduled_date_time,
+            "interview_status": "scheduled"
+        }).eq("id", app_id).execute()
+
+        return {
+            "success": True,
+            "message": "Interview scheduled successfully",
+            "app_id": app_id,
+            "scheduled_date_time": scheduled_date_time
+        }
+
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        print(f"❌ Error scheduling interview: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error scheduling interview: {str(e)}")
