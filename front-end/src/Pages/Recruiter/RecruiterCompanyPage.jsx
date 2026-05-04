@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../Context/AuthContext";
+import { saveRecruiterProfile } from "../../Services/database";
 import { ArrowRight, Building2, Globe, Users, MapPin, Zap, Briefcase } from "lucide-react";
 
 export default function RecruiterCompanyPage() {
@@ -21,6 +22,16 @@ export default function RecruiterCompanyPage() {
     setBusy(true);
 
     try {
+      // Save to database via RPC
+      await saveRecruiterProfile(user.id, {
+        companyName,
+        companyDomain,
+        industry,
+        companySize,
+        headquarters,
+      });
+      
+      // Also save to localStorage as backup
       localStorage.setItem("recruiterProfile", JSON.stringify({
         companyName,
         companyDomain,
@@ -28,6 +39,7 @@ export default function RecruiterCompanyPage() {
         companySize,
         headquarters,
       }));
+      
       nav("/recruiter", { replace: true });
     } catch (err) {
       setError(err?.message || "Could not save company profile.");
@@ -126,7 +138,11 @@ export default function RecruiterCompanyPage() {
                   Company Size (Optional)
                 </div>
               </label>
-              <select className="w-full px-4 py-3 rounded-xl border-2 border-emerald-100 bg-emerald-50/50 text-gray-900 outline-none transition-all focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200">
+              <select 
+                className="w-full px-4 py-3 rounded-xl border-2 border-emerald-100 bg-emerald-50/50 text-gray-900 outline-none transition-all focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
+                value={companySize}
+                onChange={(e) => setCompanySize(e.target.value)}
+              >
                 <option value="">Select company size</option>
                 <option value="1-50">1–50 employees</option>
                 <option value="51-200">51–200 employees</option>

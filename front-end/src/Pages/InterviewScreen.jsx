@@ -47,9 +47,11 @@ const InterviewScreen = () => {
     // Close ElevenLabs conversation
     if (conversationRef.current) {
       try {
-        await conversationRef.current.endSession();
-      } catch {
-        console.log("Session already closed");
+        if (conversationRef.current && conversationRef.current.endSession) {
+          await conversationRef.current.endSession().catch(() => {});
+        }
+      } catch (e) {
+        console.log("Old conversation already closed");
       }
       conversationRef.current = null;
     }
@@ -229,9 +231,14 @@ Click OK to continue to homepage.
         if (!isMounted) return;
 
         if (conversationRef.current) {
-          const old = conversationRef.current;
+          try {
+            if (conversationRef.current && conversationRef.current.endSession) {
+              await conversationRef.current.endSession().catch(() => {});
+            }
+          } catch (e) {
+            console.log("Old conversation already closed");
+          }
           conversationRef.current = null;
-          await old.endSession().catch(() => {});
         }
 
         console.log("🔄 Starting ElevenLabs conversation...");
@@ -239,8 +246,13 @@ Click OK to continue to homepage.
         console.log("   Prompt length:", dynamicPrompt.length);
 
         try {
+          // Get microphone stream FIRST
+          const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          
           const conversation = await Conversation.startSession({
             agentId: agentId,
+            // ✅ PASS THE AUDIO STREAM HERE
+            audioStream: micStream,
             onConnect: () => {
               console.log("✅ ElevenLabs conversation connected!");
               if (isMounted) {
@@ -280,6 +292,8 @@ Click OK to continue to homepage.
             },
             onError: (error) => {
               console.error("❌ ElevenLabs ERROR:", error);
+              console.error("   Error type:", error?.constructor?.name);
+              console.error("   Error details:", JSON.stringify(error, null, 2));
               const errorStr = typeof error === "string" ? error : error?.message || "";
               if (!errorStr.toLowerCase().includes("closing") && isMounted) {
                 alert("Interview error: " + errorStr);
@@ -303,7 +317,11 @@ Click OK to continue to homepage.
     return () => {
       isMounted = false;
       if (conversationRef.current) {
-        conversationRef.current.endSession().catch(() => {});
+        try {
+          conversationRef.current.endSession().catch(() => {});
+        } catch (e) {
+          console.log("Conversation cleanup:", e.message);
+        }
         conversationRef.current = null;
       }
     };

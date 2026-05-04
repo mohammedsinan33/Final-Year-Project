@@ -125,26 +125,35 @@ async def prepare_interview(payload: InterviewContextRequest):
                 "project_interview_questions,"
                 "key_skills,"
                 "experience,"
-                "highlights"
+                "highlights,"
+                "recruiter_id"  # ← ADD THIS
             ).eq("id", payload.application_id).single().execute()
             
             if result.data:
                 app_row = result.data
-                
-                # Map job_applications columns to repo structure
-                repo = {
-                    "description": app_row.get("project_description_analyzed"),
-                    "tech_stack": as_list(app_row.get("project_tech_stack")),
-                    "features": as_list(app_row.get("project_features")),
-                    "questions_that_can_be_asked_in_interview": as_list(app_row.get("project_interview_questions")),
-                }
-                
-                # Map job_applications columns to resume structure
-                resume = {
-                    "key_skills": as_list(app_row.get("key_skills")),
-                    "experience": as_list(app_row.get("experience")),
-                    "highlights": as_list(app_row.get("highlights")),
-                }
+            
+            # ✅ NEW: Fetch recruiter name from app_users
+            recruiter_id = app_row.get("recruiter_id")
+            if recruiter_id:
+                recruiter_result = supabase.table("app_users").select("full_name").eq("id", recruiter_id).single().execute()
+                if recruiter_result.data:
+                    recruiter_name = recruiter_result.data.get("full_name", "Interviewer")
+                    print(f"✅ Recruiter name: {recruiter_name}")
+            
+            # Map job_applications columns to repo structure
+            repo = {
+                "description": app_row.get("project_description_analyzed"),
+                "tech_stack": as_list(app_row.get("project_tech_stack")),
+                "features": as_list(app_row.get("project_features")),
+                "questions_that_can_be_asked_in_interview": as_list(app_row.get("project_interview_questions")),
+            }
+            
+            # Map job_applications columns to resume structure
+            resume = {
+                "key_skills": as_list(app_row.get("key_skills")),
+                "experience": as_list(app_row.get("experience")),
+                "highlights": as_list(app_row.get("highlights")),
+            }
         except Exception as e:
             print(f"⚠️ Error fetching application data: {str(e)}")
             # Fall back to payload data
@@ -242,7 +251,7 @@ Be professional but friendly. Each question should be asked ONE AT A TIME.
     )
     
     # Add explicit instruction at the start of the context
-    system_instruction = f"""You are a technical interviewer named Sarah.
+    system_instruction = f"""You are a technical interviewer named {recruiter_name}.
 
 ⚠️ IMPORTANT - FRESH INTERVIEW SESSION:
 - This is a COMPLETELY NEW interview with a NEW candidate
@@ -296,7 +305,7 @@ Do not read the analysis out loud; use it to guide your questioning.
                     "prompt": {
                         "prompt": full_prompt
                     },
-                    "first_message": "Hello! I'm Sarah, your technical interviewer. I've reviewed your profile. Let's start with introductions - could you briefly tell me about yourself and your background?"
+                    "first_message": f"Hello! I'm {recruiter_name}, your technical interviewer. I've reviewed your profile. Let's start with introductions - could you briefly tell me about yourself and your background?"
                 }
             }
         }

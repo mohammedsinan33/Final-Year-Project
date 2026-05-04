@@ -81,6 +81,7 @@ export default function JobSeekerPreferences() {
       }
     }
     if (step === 3) {
+      if (!String(minBasePay).trim()) return "Minimum base pay is required.";
       const value = Number(minBasePay);
       if (!Number.isFinite(value) || value < 0) return "Minimum base pay must be 0 or more.";
     }
@@ -104,6 +105,14 @@ export default function JobSeekerPreferences() {
 
   async function onSubmit(e) {
     e.preventDefault();
+    
+    // Validate all steps before submitting
+    const message = validateCurrentStep();
+    if (message) {
+      setError(message);
+      return;
+    }
+    
     setError("");
     setBusy(true);
 
@@ -112,7 +121,7 @@ export default function JobSeekerPreferences() {
         jobRole,
         jobLocation,
         employmentType,
-        minBasePay,
+        minBasePay: Number(minBasePay),
       });
       nav("/jobseeker", { replace: true });
     } catch (err) {

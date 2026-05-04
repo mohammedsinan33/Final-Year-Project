@@ -185,18 +185,17 @@ export async function getRecruiterProfile(userId) {
   try {
     const supabase = requireSupabase();
     
-    const { data, error } = await supabase
-      .from("recruiter_profiles")
-      .select("*")
-      .eq("user_id", userId)
-      .single();
+    const { data, error } = await supabase.rpc(
+      "get_recruiter_profiles_public",
+      { p_recruiter_ids: [userId] }
+    );
 
     if (error) {
       console.log("No recruiter profile found");
       return null;
     }
     
-    return data;
+    return Array.isArray(data) && data.length > 0 ? data[0] : null;
   } catch (error) {
     console.error("Error fetching recruiter profile:", error);
     return null;
@@ -214,9 +213,9 @@ export async function saveRecruiterProfile(userId, profile) {
 
   const companyName = String(profile?.companyName || "").trim();
   const companyDomain = String(profile?.companyDomain || "").trim();
-  const industry = String(profile?.industry || "").trim();
-  const companySize = String(profile?.companySize || "").trim();
-  const headquarters = String(profile?.headquarters || "").trim();
+  const industry = String(profile?.industry || "").trim() || null;
+  const companySize = String(profile?.companySize || "").trim() || null;
+  const headquarters = String(profile?.headquarters || "").trim() || null;
 
   if (!companyName) throw new Error("Company name is required.");
   if (!companyDomain) throw new Error("Company domain is required.");
@@ -321,11 +320,11 @@ export async function listPublicJobOpenings() {
   
   if (recruiterIds.length === 0) return jobs;
 
-  // Fetch recruiter profile details (company info)
-  const { data: profiles, error: profilesError } = await supabase
-    .from("recruiter_profiles")
-    .select("user_id, company_name")
-    .in("user_id", recruiterIds);
+  // Fetch recruiter profile details (company info) via RPC
+  const { data: profiles, error: profilesError } = await supabase.rpc(
+    "get_recruiter_profiles_public",
+    { p_recruiter_ids: recruiterIds }
+  );
 
   if (profilesError || !profiles) {
     return jobs;
