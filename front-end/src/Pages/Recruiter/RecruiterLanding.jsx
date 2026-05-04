@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import {
-  createRecruiterJobOpening,
   getCurrentUser,
   listRecruiterJobOpenings,
+  createRecruiterJobOpening,
+  getCandidatesForJob,
+  getRecruiterProfile,
+  sendCandidateOfferEmail,
+  sendCandidateRejectionEmail,
+  updateCandidateSelectedStatus,
 } from "../../Services/database";
+import CandidateReportModal from "../../Components/CandidateReport";
 import { Plus } from "lucide-react";
 import RecruiterNavbar from "../../Components/RecruiterNavbar";
 import CreateJobModal from "../../Components/CreateJobModal";
@@ -20,7 +26,11 @@ export default function RecruiterLanding() {
   const [openModal, setOpenModal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [expandedJob, setExpandedJob] = useState(null);
+  const [candidates, setCandidates] = useState([]);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
+  const [showCandidateModal, setShowCandidateModal] = useState(false);
+  const [candidateLoading, setCandidateLoading] = useState(false);
+  const [companyName, setCompanyName] = useState("");
 
   // Form state
   const [formState, setFormState] = useState({
@@ -39,46 +49,16 @@ export default function RecruiterLanding() {
     headcount: 1,
   });
 
-  // Mock candidates data
-  const mockCandidates = {
-    1: [
-      {
-        id: 1,
-        name: "Aarav Sharma",
-        status: "shortlisted",
-        resume_score: 92,
-        repo_score: 88,
-        interview_score: 85,
-        email: "aarav@example.com",
-        phone: "+91-9876543210",
-        skills: "React, Node.js, MongoDB",
-        experience: 3,
-        task_status: "completed",
-        task_link: "https://github.com/aarav/task",
-      },
-      {
-        id: 2,
-        name: "Priya Patel",
-        status: "shortlisted",
-        resume_score: 85,
-        repo_score: 90,
-        interview_score: null,
-        email: "priya@example.com",
-        phone: "+91-9876543211",
-        skills: "Vue.js, Python, PostgreSQL",
-        experience: 2,
-        task_status: "pending",
-        task_link: null,
-      },
-    ],
-  };
-
+  // Load user
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         const u = await getCurrentUser();
         if (mounted) setUser(u);
+      } catch (err) {
+        console.error("Error loading user:", err);
+        if (mounted) setUser(null);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -88,6 +68,16 @@ export default function RecruiterLanding() {
     };
   }, []);
 
+  // Load company name
+  useEffect(() => {
+    if (user?.id) {
+      getRecruiterProfile(user.id)
+        .then(profile => setCompanyName(profile?.company_name || "Our Company"))
+        .catch(() => setCompanyName("Our Company"));
+    }
+  }, [user?.id]);
+
+  // Load jobs
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -173,7 +163,91 @@ export default function RecruiterLanding() {
     }
   }
 
-  const candidates = mockCandidates[expandedJob] || [];
+  const handleJobExpand = async (jobId) => {
+    if (expandedJob === jobId) {
+      setExpandedJob(null);
+      setCandidates([]);
+      return;
+    }
+
+    setExpandedJob(jobId);
+    setCandidateLoading(true);
+    try {
+      const cands = await getCandidatesForJob(jobId);
+      setCandidates(cands);
+    } catch (err) {
+      setError(err?.message || "Could not load candidates");
+      setCandidates([]);
+    } finally {
+      setCandidateLoading(false);
+    }
+  };
+
+  const handleSelectCandidate = async (candidate) => {
+    try {
+      const jobTitle = jobs.find(j => j.id === expandedJob)?.role_title || "Position";
+      
+      // Step 1: Update database
+      await updateCandidateSelectedStatus(candidate.application_id, true);
+      await sendCandidateOfferEmail(candidate.application_id, jobTitle, companyName);
+      
+      // Step 2: Fetch fresh data from database
+      const updatedCandidates = await getCandidatesForJob(expandedJob);
+      
+      // Step 3: Find the updated candidate from database
+      const updatedCandidate = updatedCandidates.find(
+        c => c.application_id === candidate.application_id
+      );
+      
+      // Step 4: Update modal with database value
+      setSelectedCandidate(updatedCandidate || { ...candidate, selected: true });
+      
+      // Step 5: Update candidates list
+      setCandidates(updatedCandidates);
+      
+      // Step 6: Close modal after showing success message
+      setTimeout(() => {
+        setShowCandidateModal(false);
+        setSelectedCandidate(null);
+      }, 2000);
+    } catch (err) {
+      setError(err?.message || "Failed to process selection");
+      throw err;
+    }
+  };
+
+  const handleRejectCandidate = async (candidate) => {
+    try {
+      const jobTitle = jobs.find(j => j.id === expandedJob)?.role_title || "Position";
+      
+      // Step 1: Update database
+      await updateCandidateSelectedStatus(candidate.application_id, false);
+      await sendCandidateRejectionEmail(candidate.application_id, jobTitle, companyName);
+      
+      // Step 2: Fetch fresh data from database
+      const updatedCandidates = await getCandidatesForJob(expandedJob);
+      
+      // Step 3: Find the updated candidate from database
+      const updatedCandidate = updatedCandidates.find(
+        c => c.application_id === candidate.application_id
+      );
+      
+      // Step 4: Update modal with database value
+      setSelectedCandidate(updatedCandidate || { ...candidate, selected: false });
+      
+      // Step 5: Update candidates list
+      setCandidates(updatedCandidates);
+      
+      // Step 6: Close modal after showing success message
+      setTimeout(() => {
+        setShowCandidateModal(false);
+        setSelectedCandidate(null);
+      }, 2000);
+    } catch (err) {
+      setError(err?.message || "Failed to process rejection");
+      throw err;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-green-50 to-emerald-50">
@@ -227,12 +301,13 @@ export default function RecruiterLanding() {
                 job={job}
                 candidates={candidates}
                 expanded={expandedJob === job.id}
-                onToggle={() => {
-                  setExpandedJob(expandedJob === job.id ? null : job.id);
-                  setSelectedCandidate(null);
-                }}
+                onToggle={() => handleJobExpand(job.id)}
                 selectedCandidate={selectedCandidate}
-                onSelectCandidate={setSelectedCandidate}
+                onSelectCandidate={(cand) => {
+                  setSelectedCandidate(cand);
+                  setShowCandidateModal(true);
+                }}
+                loadingCandidates={candidateLoading}
               />
             ))}
           </div>
@@ -249,6 +324,20 @@ export default function RecruiterLanding() {
         onSubmit={onCreateJob}
         formState={formState}
         setFormState={setFormState}
+      />
+
+      <CandidateReportModal
+        candidate={selectedCandidate}
+        open={showCandidateModal}
+        onClose={() => {
+          setShowCandidateModal(false);
+          setSelectedCandidate(null);
+        }}
+        onSelect={handleSelectCandidate}
+        onReject={handleRejectCandidate}
+        jobTitle={jobs.find(j => j.id === expandedJob)?.role_title || "Position"}
+        companyName={companyName}
+        loading={candidateLoading}
       />
     </div>
   );

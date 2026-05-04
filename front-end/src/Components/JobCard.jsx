@@ -1,93 +1,74 @@
-import { ChevronDown, ChevronUp, Users } from "lucide-react";
-import CandidateCard from "./CandidateCard";
+import { ChevronDown, Users, MapPin, Briefcase, DollarSign } from "lucide-react";
+import CandidatesList from "./CandidatesList";
 
 export default function JobCard({
   job,
   candidates,
   expanded,
   onToggle,
-  selectedCandidate,
   onSelectCandidate,
+  loadingCandidates,
 }) {
   return (
-    <div className="bg-white rounded-2xl shadow-lg border-2 border-emerald-100 hover:border-emerald-600 transition">
+    <div className="bg-white rounded-xl shadow-lg border-2 border-emerald-100 overflow-hidden hover:shadow-xl transition">
       {/* Job Header */}
-      <button
+      <div
         onClick={onToggle}
-        className="w-full p-6 flex items-center justify-between hover:bg-emerald-50/50 transition"
+        className="p-6 cursor-pointer bg-gradient-to-r from-emerald-50 to-blue-50 hover:from-emerald-100 hover:to-blue-100 transition"
       >
-        <div className="text-left flex-1">
-          <h3 className="text-2xl font-bold text-gray-900 mb-2">{job.role_title}</h3>
-          <div className="flex flex-wrap gap-4 text-gray-600">
-            <span className="flex items-center gap-1">📍 {job.job_location || "Remote"}</span>
-            <span className="flex items-center gap-1">💼 {job.job_type}</span>
-            {job.compensation && <span className="flex items-center gap-1">💰 {job.compensation}</span>}
-            <span className="flex items-center gap-1">👥 {job.headcount} position(s)</span>
+        <div className="flex justify-between items-start gap-4">
+          <div className="flex-1 min-w-0">
+            <h3 className="text-2xl font-bold text-gray-900 mb-2">{job.role_title}</h3>
+            <p className="text-gray-600 line-clamp-2 mb-3">{job.description}</p>
+
+            <div className="flex flex-wrap gap-4 text-sm text-gray-700">
+              {job.job_location && (
+                <div className="flex items-center gap-1">
+                  <MapPin size={16} className="text-emerald-600 flex-shrink-0" />
+                  <span>{job.job_location}</span>
+                </div>
+              )}
+              {job.job_type && (
+                <div className="flex items-center gap-1">
+                  <Briefcase size={16} className="text-emerald-600 flex-shrink-0" />
+                  <span>{job.job_type}</span>
+                </div>
+              )}
+              {job.compensation && (
+                <div className="flex items-center gap-1">
+                  <DollarSign size={16} className="text-emerald-600 flex-shrink-0" />
+                  <span>{job.compensation}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-1">
+                <Users size={16} className="text-emerald-600 flex-shrink-0" />
+                <span>{candidates.length} Applications</span>
+              </div>
+            </div>
           </div>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+            className={`p-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition transform flex-shrink-0 ${
+              expanded ? "rotate-180" : ""
+            }`}
+          >
+            <ChevronDown size={24} />
+          </button>
         </div>
-        {expanded ? (
-          <ChevronUp size={28} className="text-emerald-600" />
-        ) : (
-          <ChevronDown size={28} className="text-gray-400" />
-        )}
-      </button>
+      </div>
 
-      {/* Expanded Content */}
+      {/* Expanded Content with Candidates List */}
       {expanded && (
-        <div className="border-t-2 border-emerald-100 p-6 bg-emerald-50/30 space-y-6">
-          {/* Job Details */}
-          <div className="grid md:grid-cols-2 gap-6">
-            <div>
-              <h4 className="text-sm font-semibold text-gray-600 mb-2">Description</h4>
-              <p className="text-gray-700 leading-relaxed">{job.description}</p>
-            </div>
-            <div>
-              <h4 className="text-sm font-semibold text-gray-600 mb-2">Skills Required</h4>
-              <p className="text-gray-700">{job.skills_needed || "Not specified"}</p>
-            </div>
-          </div>
-
-          {/* Status & Dates */}
-          <div className="bg-white rounded-xl p-4 border border-emerald-200">
-            <div className="grid md:grid-cols-3 gap-4 text-sm">
-              <div>
-                <p className="text-gray-600 font-semibold">Application Deadline</p>
-                <p className="text-gray-900 mt-1">
-                  {job.application_deadline
-                    ? new Date(job.application_deadline).toLocaleDateString()
-                    : "Not set"}
-                </p>
-              </div>
-              <div>
-                <p className="text-gray-600 font-semibold">Screening Period</p>
-                <p className="text-gray-900 mt-1">
-                  {job.screening_start_date ? new Date(job.screening_start_date).toLocaleDateString() : "Not set"} to{" "}
-                  {job.screening_end_date ? new Date(job.screening_end_date).toLocaleDateString() : "Not set"}
-                </p>
-              </div>
-              <div>
-                <p className="text-gray-600 font-semibold">Experience Required</p>
-                <p className="text-gray-900 mt-1">{job.years_of_experience}+ years</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Candidates List */}
-          {candidates.length > 0 && (
-            <div className="space-y-3">
-              <h4 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                <Users size={20} /> Candidates ({candidates.length})
-              </h4>
-              {candidates.map((candidate) => (
-                <CandidateCard
-                  key={candidate.id}
-                  candidate={candidate}
-                  expanded={selectedCandidate === candidate.id}
-                  onToggle={() => onSelectCandidate(selectedCandidate === candidate.id ? null : candidate.id)}
-                />
-              ))}
-            </div>
-          )}
+        <div className="p-6 border-t-2 border-emerald-100 bg-gray-50">
+          <CandidatesList
+            candidates={candidates}
+            onSelectCandidate={onSelectCandidate}
+            loading={loadingCandidates}
+          />
         </div>
       )}
     </div>

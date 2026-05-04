@@ -421,69 +421,26 @@ export default function JobSeekerLanding() {
 
           {/* Right: Job Details */}
           <div className="lg:col-span-2">
-            {selectedJob ? (
-              <div className="bg-white rounded-2xl shadow-xl p-8 border border-emerald-100">
-                {/* Job Header */}
-                <div className="mb-6 pb-6 border-b border-emerald-100">
-                  <h1 className="text-4xl font-black text-gray-900 mb-2">{selectedJob.title || selectedJob.role_title}</h1>
-                  <p className="text-xl text-emerald-600 font-semibold">{selectedJob.company_name}</p>
-                  <div className="flex flex-wrap gap-4 mt-4 text-gray-600">
-                    <div className="flex items-center gap-2">
-                      <MapPin size={20} className="text-emerald-600" />
-                      {selectedJob.location || "Remote"}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <DollarSign size={20} className="text-emerald-600" />
-                      {selectedJob.salary_range || "Competitive"}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock size={20} className="text-emerald-600" />
-                      {selectedJob.employment_type || "Full-time"}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Job Description */}
-                <div className="mb-6">
-                  <h3 className="text-xl font-bold text-gray-900 mb-3">About This Role</h3>
-                  <p className="text-gray-600 leading-relaxed">{selectedJob.description || "No description available"}</p>
-                </div>
-
-                {/* Requirements */}
-                {selectedJob.requirements && (
-                  <div className="mb-6">
-                    <h3 className="text-xl font-bold text-gray-900 mb-3">Requirements</h3>
-                    <p className="text-gray-600 leading-relaxed">{selectedJob.requirements}</p>
-                  </div>
-                )}
-
-                {/* Actions */}
-                <div className="flex flex-wrap gap-3 pt-6 border-t border-emerald-100">
-                  {!hasApplied ? (
-                    <button
-                      onClick={() => {
-                        if (!canApplyToJob) return;
-                        setApplyOpen(true);
-                        setResumeFile(null);
-                        setUploadError("");
-                        setUploadUrl("");
-                      }}
-                      className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white py-3 rounded-xl font-bold transition transform hover:-translate-y-1 shadow-lg flex items-center justify-center gap-2"
-                    >
-                      <FileText size={20} /> Apply Now
-                    </button>
-                  ) : (
-                    <div className="flex-1 bg-green-100 border-2 border-green-600 text-green-600 py-3 rounded-xl font-bold text-center">
-                      ✓ Applied
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="bg-white rounded-2xl shadow-xl p-12 text-center border border-emerald-100">
-                <p className="text-gray-500 text-lg">Select a job to view details</p>
-              </div>
-            )}
+            <JobDetailPanel
+              selectedJob={selectedJob}
+              hasApplied={hasApplied}
+              hasTask={hasTask}
+              taskDescription={taskDescription}
+              taskLinkDrafts={taskLinkDrafts}
+              taskLinks={taskLinks}
+              taskStatuses={taskStatuses}
+              selectedJobId={selectedJobId}
+              selectedRecruiterId={selectedRecruiterId}
+              onTaskDraftChange={onTaskDraftChange}
+              onTaskSubmit={onTaskSubmit}
+              onApplyClick={() => {
+                if (!canApplyToJob) return;
+                setApplyOpen(true);
+                setResumeFile(null);
+                setUploadError("");
+                setUploadUrl("");
+              }}
+            />
           </div>
         </div>
       </div>

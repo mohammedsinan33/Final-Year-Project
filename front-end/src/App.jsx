@@ -5,7 +5,6 @@ import AnalyzerPage from "./Components/AnalyzerPage";
 import InterviewScreen from "./Pages/InterviewScreen";
 import InterviewTester from "./Pages/InterviewTester";
 import ProctoredReport from "./Pages/proctoredreport";
-import Finalrport from "./Pages/finalrport";
 import Signin from "./Pages/Auth/Signin";
 import Signup from "./Pages/Auth/Signup";
 import JobSeekerLanding from "./Pages/Jobseaker/JobSeekerLanding";
@@ -15,6 +14,7 @@ import RecruiterCompanyPage from "./Pages/Recruiter/RecruiterCompanyPage";
 import ProjectScreen from "./Pages/ProjectScreen";
 import InterviewScheduler from "./Pages/InterviewScheduler";
 import ProjectSubmission from "./Pages/ProjectSubmission";
+import FinalReport from "./Components/CandidateReport"
 import "./App.css";
 import Home from "./Pages/HomePage";
 
@@ -68,7 +68,6 @@ const App = () => {
           <Route path="/tester" element={<InterviewTester />} />
           <Route path="/interview-tester" element={<InterviewTester />} />
           <Route path="/proctored-report" element={<ProctoredReport />} />
-          <Route path="/finalrport" element={<Finalrport />} />
           <Route path="/project" element={<ProjectScreen />} />
           <Route path="/project-submission" element={<ProjectSubmission />} />
           <Route path="/interview-scheduler" element={<InterviewScheduler />} />

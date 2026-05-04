@@ -9,7 +9,7 @@ load_dotenv()
 from app.utils.resume import extract_resume_text
 from supabase import create_client
 from app.llm_client import analyze_resume_with_llm
-from app.utils.mails import send_shortlist_email
+from app.utils.mails import send_shortlist_email, send_offer_email, send_rejection_email
 
 
 router = APIRouter(prefix="/applications", tags=["applications"])
@@ -452,3 +452,217 @@ async def schedule_interview(payload: dict):
     except Exception as e:
         print(f"❌ Error scheduling interview: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error scheduling interview: {str(e)}")
+
+
+# ============================================
+# RECRUITER CANDIDATE MANAGEMENT ROUTES
+# ============================================
+
+@router.post("/send-offer-email")
+async def send_offer_email_route(payload: Dict[str, Any]):
+    """Send offer email to selected candidate"""
+    try:
+        application_id = payload.get("application_id")
+        job_title = payload.get("job_title")
+        company_name = payload.get("company_name")
+        
+        if not application_id or not job_title:
+            raise HTTPException(status_code=400, detail="Missing required fields: application_id, job_title")
+        
+        # Get candidate email from job_applications
+        apps = _sb_get(
+            "job_applications",
+            {
+                "select": "id,candidate_id",
+                "id": f"eq.{application_id}",
+                "limit": "1",
+            },
+        )
+        
+        if not apps:
+            raise HTTPException(status_code=404, detail="Application not found")
+        
+        app = apps[0]
+        candidate_id = app.get("candidate_id")
+        
+        # Get candidate email from users table
+        users = _sb_get(
+            "users",
+            {
+                "select": "email",
+                "id": f"eq.{candidate_id}",
+                "limit": "1",
+            },
+        )
+        
+        if not users or not users[0].get("email"):
+            raise HTTPException(status_code=404, detail="Candidate email not found")
+        
+        candidate_email = users[0].get("email")
+        
+        # Send offer email
+        from app.utils.mails import send_offer_email
+        success = send_offer_email(
+            candidate_email=candidate_email,
+            job_title=job_title,
+            company_name=company_name or "Our Company"
+        )
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to send email")
+        
+        # Update application status
+        _sb_patch(
+            "job_applications",
+            {"id": f"eq.{application_id}"},
+            {
+                "application_status": "selected",
+                "offer_email_sent": True,
+                "offer_email_sent_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        
+        return {
+            "ok": True,
+            "message": f"Offer email sent to {candidate_email}",
+            "candidate_email": candidate_email
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error sending offer email: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/send-rejection-email")
+async def send_rejection_email_route(payload: Dict[str, Any]):
+    """Send rejection email to candidate"""
+    try:
+        application_id = payload.get("application_id")
+        job_title = payload.get("job_title")
+        company_name = payload.get("company_name")
+        
+        if not application_id or not job_title:
+            raise HTTPException(status_code=400, detail="Missing required fields: application_id, job_title")
+        
+        # Get candidate email from job_applications
+        apps = _sb_get(
+            "job_applications",
+            {
+                "select": "id,candidate_id",
+                "id": f"eq.{application_id}",
+                "limit": "1",
+            },
+        )
+        
+        if not apps:
+            raise HTTPException(status_code=404, detail="Application not found")
+        
+        app = apps[0]
+        candidate_id = app.get("candidate_id")
+        
+        # Get candidate email from users table
+        users = _sb_get(
+            "users",
+            {
+                "select": "email",
+                "id": f"eq.{candidate_id}",
+                "limit": "1",
+            },
+        )
+        
+        if not users or not users[0].get("email"):
+            raise HTTPException(status_code=404, detail="Candidate email not found")
+        
+        candidate_email = users[0].get("email")
+        
+        # Send rejection email
+        from app.utils.mails import send_rejection_email
+        success = send_rejection_email(
+            candidate_email=candidate_email,
+            job_title=job_title
+        )
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to send email")
+        
+        # Update application status
+        _sb_patch(
+            "job_applications",
+            {"id": f"eq.{application_id}"},
+            {
+                "application_status": "rejected",
+                "rejection_email_sent": True,
+                "rejection_email_sent_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        
+        return {
+            "ok": True,
+            "message": f"Rejection email sent to {candidate_email}",
+            "candidate_email": candidate_email
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error sending rejection email: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/candidates/{job_id}")
+async def get_candidates_for_job(job_id: str):
+    """Get all candidates for a specific job"""
+    try:
+        candidates = _sb_get(
+            "job_applications",
+            {
+                "select": "id,candidate_id,resume_score,repo_score,interview_score,interview_status,task_status,overall_score,technical_score,communication_score,integrity_score,eligibility_status,eligibility_reasoning,match_score,application_status,users(id,email,fullName,phone,key_skills)",
+                "job_id": f"eq.{job_id}",
+                "order": "created_at.desc",
+            },
+        )
+        
+        # Transform data
+        result = []
+        for app in candidates:
+            user = app.get("users", {}) if isinstance(app.get("users"), dict) else {}
+            result.append({
+                "id": app.get("id"),
+                "application_id": app.get("id"),
+                "candidate_id": app.get("candidate_id"),
+                "name": user.get("fullName") or "Candidate",
+                "email": user.get("email") or "N/A",
+                "phone": user.get("phone") or "N/A",
+                "skills": ", ".join(user.get("key_skills", [])) if isinstance(user.get("key_skills"), list) else user.get("key_skills", "N/A"),
+                "resume_score": app.get("resume_score"),
+                "repo_score": app.get("repo_score"),
+                "interview_score": app.get("interview_score"),
+                "interview_status": app.get("interview_status"),
+                "task_status": app.get("task_status"),
+                "overall_score": app.get("overall_score"),
+                "technical_score": app.get("technical_score"),
+                "communication_score": app.get("communication_score"),
+                "integrity_score": app.get("integrity_score"),
+                "eligibility_status": app.get("eligibility_status"),
+                "eligibility_reasoning": app.get("eligibility_reasoning"),
+                "match_score": app.get("match_score"),
+                "application_status": app.get("application_status"),
+            })
+        
+        return {
+            "ok": True,
+            "candidates": result,
+            "total": len(result)
+        }
+        
+    except Exception as e:
+        print(f"❌ Error fetching candidates: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

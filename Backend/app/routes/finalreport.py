@@ -1,167 +1,305 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
+import os
+import io
+import json
+import re
+from datetime import datetime
+import google.generativeai as genai
+from dotenv import load_dotenv
 
-from app.llm_client import generate_final_report_with_llm
 from app.routes.interview import get_session_data
+from app.utils.database import get_application_and_job, save_interview_report_to_db, get_interview_report
+from app.schemas import (
+    FinalReportRequest,
+    FinalReportResponse,
+    CheckInterviewDataResponse,
+    InterviewReport,
+    EligibilityInfo,
+    ScoreBreakdown,
+    SkillsAssessment,
+    CandidateAssessment,
+    ProctoringReport,
+    ProctorEvent,
+    GeminiAnalysisResult
+)
 
-router = APIRouter()
+load_dotenv()
 
-
-class TranscriptTurn(BaseModel):
-    role: str
-    text: str
-
-
-class ProctorEvent(BaseModel):
-    time: Optional[str] = None
-    issue: str
-
-
-class FinalReportRequest(BaseModel):
-    session_id: str
-    transcript: List[TranscriptTurn] = Field(default_factory=list)
-    qa_pairs: Optional[List[Dict[str, str]]] = None
-    proctor_events: List[ProctorEvent] = Field(default_factory=list)
-    interview_context: Optional[Dict[str, Any]] = None
+router = APIRouter(prefix="/final-report", tags=["final-report"])
 
 
-class FinalReportResponse(BaseModel):
-    session_id: str
-    report: Dict[str, Any]
-
-
-def _build_fallback_report(
-    qa_pairs: List[Dict[str, str]],
-    proctor_events: List[ProctorEvent],
-    context: Dict[str, Any],
-) -> Dict[str, Any]:
-    answered = sum(1 for pair in qa_pairs if (pair.get("answer") or "").strip())
-    total = len(qa_pairs)
-    qa_match_score = int((answered / total) * 100) if total else 0
-
-    proctor_issue_count = len(proctor_events)
-    # Conservative heuristic: each alert contributes 10% risk, capped at 100.
-    proctor_issues_percent = min(100, proctor_issue_count * 10)
-    proctoring_score = max(0, 100 - proctor_issues_percent)
-    proctoring_status = "acceptable" if proctor_issues_percent <= 20 else "concern"
-
-    tech_seed = 50 if total > 0 else 35
-    technical_score = min(100, tech_seed + int(qa_match_score * 0.4))
-    communication_score = min(100, 45 + int(qa_match_score * 0.45))
-
-    overall_score = int((technical_score * 0.4) + (communication_score * 0.35) + (proctoring_score * 0.25))
-
-    if overall_score >= 80:
-        suitability_level = "Strong Yes"
-    elif overall_score >= 65:
-        suitability_level = "Yes"
-    elif overall_score >= 50:
-        suitability_level = "Borderline"
-    else:
-        suitability_level = "No"
-
-    suitable = suitability_level in ("Strong Yes", "Yes")
-
-    repo_analysis = context.get("repo_analysis") or {}
-    resume_analysis = context.get("resume_analysis") or {}
-    matched_skills = (resume_analysis.get("key_skills") or [])[:8]
-
-    strengths: List[str] = []
-    if qa_match_score >= 70:
-        strengths.append("Answered most interview questions with usable responses.")
-    if proctoring_status == "acceptable":
-        strengths.append("Proctoring behavior remained within acceptable threshold.")
-    if repo_analysis.get("tech_stack"):
-        strengths.append("Demonstrated project exposure across the listed tech stack.")
-    if not strengths:
-        strengths.append("Candidate completed interview flow and submitted responses.")
-
-    improvement_areas: List[str] = []
-    if qa_match_score < 60:
-        improvement_areas.append("Improve depth and completeness of technical answers.")
-    if proctoring_status == "concern":
-        improvement_areas.append("Reduce proctoring alerts and maintain exam discipline.")
-    if not matched_skills:
-        improvement_areas.append("Provide clearer evidence of role-specific skills in interview/resume.")
-
-    final_summary = (
-        "Generated fallback report because LLM response was unavailable. "
-        f"Overall performance is {overall_score}% with proctoring marked as {proctoring_status}."
-    )
-
+def _build_fallback_analysis(rating: int, proctor_events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Fallback analysis when Gemini fails"""
+    print("⚠️ Using fallback analysis")
+    
+    integrity_score = max(0, 100 - (len(proctor_events) * 15))
+    technical_score = min(100, rating * 20)
+    communication_score = min(100, rating * 20 + 20)
+    
     return {
-        "overall_score": overall_score,
-        "qa_match_score": qa_match_score,
         "technical_score": technical_score,
         "communication_score": communication_score,
-        "proctoring_score": proctoring_score,
-        "proctor_issues_percent": proctor_issues_percent,
-        "proctoring_status": proctoring_status,
-        "suitable": suitable,
-        "suitability_level": suitability_level,
-        "strengths": strengths,
-        "improvement_areas": improvement_areas,
-        "matched_skills": matched_skills,
-        "missing_skills": [],
-        "final_summary": final_summary,
+        "integrity_score": integrity_score,
+        "experience_match": 50,
+        "skills_match": 50,
+        "job_match_score": 50,
+        "overall_score": int((technical_score * 0.3) + (communication_score * 0.3) + (integrity_score * 0.4)),
+        "required_skills": [],
+        "demonstrated_skills": [],
+        "skill_gaps": [],
+        "strengths": ["Completed interview"],
+        "weaknesses": ["Analysis unavailable"],
+        "eligibility_status": "Pending Review",
+        "eligibility_reasoning": f"Automatic analysis failed. Rating: {rating}/5. Violations: {len(proctor_events)}",
+        "detailed_feedback": "Manual review recommended",
+        "hiring_recommendation": "Maybe"
     }
 
 
-def _build_qa_pairs(transcript: List[TranscriptTurn]) -> List[Dict[str, str]]:
-    pairs: List[Dict[str, str]] = []
-    current_q: Optional[str] = None
-
-    for turn in transcript:
-        role = (turn.role or "").lower().strip()
-        text = (turn.text or "").strip()
-        if not text:
-            continue
-
-        if role in ("agent", "ai", "assistant"):
-            current_q = text
-        elif role in ("candidate", "user", "human"):
-            if current_q:
-                pairs.append({"question": current_q, "answer": text})
-                current_q = None
-
-    return pairs
-
-
 @router.post("/generate", response_model=FinalReportResponse)
-async def generate_final_report(payload: FinalReportRequest):
+async def generate_final_report(request: FinalReportRequest):
+    """Generate comprehensive final report with Gemini analysis and save to database"""
     try:
-        session_data = get_session_data(payload.session_id)
-
-        context_from_session = {
-            "job_description": session_data.get("job_description", ""),
-            "skills_needed": session_data.get("skills_needed", ""),
-            "repo_analysis": session_data.get("repo_analysis", {}),
-            "resume_analysis": session_data.get("resume_analysis", {}),
+        session_id = request.session_id
+        application_id = request.application_id
+        
+        print(f"\n{'='*80}")
+        print(f"📊 GENERATING FINAL REPORT")
+        print(f"   Session: {session_id}")
+        print(f"   Application: {application_id}")
+        print(f"{'='*80}")
+        
+        # Get interview session data
+        session = get_session_data(session_id)
+        print(f"✓ Session loaded: {len(session.get('transcript', []))} turns, {len(session.get('proctor_events', []))} violations")
+        
+        # Get application and job details
+        app_job_data = get_application_and_job(application_id)
+        application = app_job_data["application"]
+        job = app_job_data["job"]
+        
+        job_description = job.get("description", "")
+        job_title = job.get("role_title", "Unknown Position")
+        required_skills_raw = job.get("skills_needed", "")
+        
+        # Extract basic data from session
+        review = session.get("review", {})
+        rating = review.get("rating", 3)
+        feedback = review.get("feedback", "")
+        
+        proctor_events = session.get("proctor_events", [])
+        proctoring_details = {
+            "total_violations": len(proctor_events),
+            "events": proctor_events
         }
-        context = {**context_from_session, **(payload.interview_context or {})}
+        
+        # Analyze audio if present
+        audio_analysis = "No audio provided"
+        if "audio_content" in session:
+            try:
+                print(f"\n🎙️ Processing audio...")
+                audio_content = session["audio_content"]
+                
+                api_key = os.getenv("LLM_API_KEY")
+                if not api_key:
+                    raise RuntimeError("LLM_API_KEY not configured")
+                
+                genai.configure(api_key=api_key)
+                model_name = os.getenv("LLM_MODEL", "gemini-3-flash-preview")
+                model = genai.GenerativeModel(model_name)
+                
+                print(f"   Uploading to Gemini...")
+                audio_file = genai.upload_file(io.BytesIO(audio_content), mime_type="audio/webm")
+                
+                print(f"   Analyzing...")
+                response = model.generate_content([
+                    """Analyze this interview recording. Provide a report covering:
+1. Communication Quality: Clarity, confidence, pace
+2. Technical Knowledge: Topics discussed and depth
+3. Key Topics: Main subjects covered
+4. Strengths: What candidate did well
+5. Improvements: Areas for improvement
+6. Engagement: Interest and engagement level
+7. Overall Assessment: Excellent/Good/Average/Needs Improvement""",
+                    audio_file
+                ])
+                
+                audio_analysis = response.text
+                print(f"   ✅ Audio analysis done")
+                
+            except Exception as e:
+                print(f"   ⚠️ Audio analysis failed: {str(e)}")
+                audio_analysis = f"Audio analysis failed: {str(e)}"
+        
+        # Build interview transcript
+        transcript = session.get("transcript", [])
+        interview_transcript = "\n".join([
+            f"{turn.get('role', 'unknown').upper()}: {turn.get('text', '')}"
+            for turn in transcript
+        ]) or "No transcript"
+        
+        # Get Gemini analysis
+        print(f"\n📊 Sending to Gemini for eligibility assessment...")
+        
+        analysis_prompt = f"""Analyze this interview and provide eligibility assessment. Return ONLY valid JSON.
 
-        transcript_items = payload.transcript or [TranscriptTurn(**t) for t in session_data.get("transcript", [])]
-        qa_pairs = payload.qa_pairs or session_data.get("qa_pairs") or _build_qa_pairs(transcript_items)
-        proctor_items = payload.proctor_events or [ProctorEvent(**p) for p in session_data.get("proctor_events", [])]
+POSITION: {job_title}
+RATING: {rating}/5
 
-        llm_payload = {
-            "session_id": payload.session_id,
-            "qa_pairs": qa_pairs,
-            "transcript": [t.model_dump() for t in transcript_items],
-            "proctor_events": [p.model_dump() for p in proctor_items],
-            "job_description": context.get("job_description", ""),
-            "skills_needed": context.get("skills_needed", ""),
-            "repo_analysis": context.get("repo_analysis", {}),
-            "resume_analysis": context.get("resume_analysis", {}),
-        }
+INTERVIEW TRANSCRIPT (first 2000 chars):
+{interview_transcript[:2000]}
 
+JOB REQUIREMENTS:
+{job_description[:800]}
+Skills: {required_skills_raw}
+
+AUDIO ANALYSIS:
+{audio_analysis[:800]}
+
+PROCTORING:
+Violations: {len(proctor_events)}
+
+CANDIDATE:
+Skills: {', '.join(application.get('key_skills', [])[:5] if isinstance(application.get('key_skills'), list) else [])}
+
+Return this JSON format (no markdown):
+{{
+  "technical_score": 0-100,
+  "communication_score": 0-100,
+  "integrity_score": 0-100,
+  "experience_match": 0-100,
+  "skills_match": 0-100,
+  "job_match_score": 0-100,
+  "overall_score": 0-100,
+  "required_skills": ["skill1", "skill2"],
+  "demonstrated_skills": ["skill1"],
+  "skill_gaps": ["skill1"],
+  "strengths": ["strength1", "strength2"],
+  "weaknesses": ["weakness1"],
+  "eligibility_status": "Eligible|Not Eligible|Pending Review",
+  "eligibility_reasoning": "detailed explanation",
+  "detailed_feedback": "comprehensive feedback",
+  "hiring_recommendation": "Strong Yes|Yes|Maybe|No"
+}}"""
+        
+        gemini_analysis = None
+        
         try:
-            report = await generate_final_report_with_llm(llm_payload)
-        except Exception as llm_error:
-            print(f"Final report LLM failed. Falling back to heuristic report: {llm_error}")
-            report = _build_fallback_report(qa_pairs, proctor_items, context)
-
-        return {"session_id": payload.session_id, "report": report}
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(analysis_prompt)
+            response_text = response.text.strip()
+            
+            # Extract JSON
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                json_str = json_match.group(0)
+                gemini_analysis = json.loads(json_str)
+                print(f"   ✅ Gemini analysis complete")
+            else:
+                raise ValueError("No JSON in response")
+                
+        except Exception as e:
+            print(f"   ⚠️ Gemini failed: {str(e)}")
+            gemini_analysis = _build_fallback_analysis(rating, proctor_events)
+        
+        # Save to database
+        print(f"\n💾 SAVING TO DATABASE...")
+        db_result = save_interview_report_to_db(
+            application_id=application_id,
+            rating=rating,
+            feedback=feedback,
+            proctoring_details=proctoring_details,
+            audio_analysis=audio_analysis,
+            gemini_analysis=gemini_analysis
+        )
+        
+        # Verify
+        print(f"\n✓ VERIFYING DATABASE SAVE...")
+        saved_report = get_interview_report(application_id)
+        database_saved = saved_report is not None and saved_report.get("interview_status") == "completed"
+        
+        if database_saved:
+            print(f"✅ DATA SAVED SUCCESSFULLY")
+        else:
+            print(f"❌ VERIFICATION FAILED")
+        
+        # Build report for frontend
+        comprehensive_report = {
+            "session_id": session_id,
+            "application_id": application_id,
+            "position": job_title,
+            "interview_date": datetime.now().isoformat(),
+            "candidate_rating": rating,
+            "eligibility": {
+                "status": gemini_analysis.get("eligibility_status", "Pending Review"),
+                "recommendation": gemini_analysis.get("hiring_recommendation", "Pending"),
+                "reasoning": gemini_analysis.get("eligibility_reasoning", "")
+            },
+            "scores": {
+                "overall": gemini_analysis.get("overall_score", 0),
+                "technical": gemini_analysis.get("technical_score", 0),
+                "communication": gemini_analysis.get("communication_score", 0),
+                "integrity": gemini_analysis.get("integrity_score", 0),
+                "job_match": gemini_analysis.get("job_match_score", 0),
+                "experience_match": gemini_analysis.get("experience_match", 0),
+                "skills_match": gemini_analysis.get("skills_match", 0)
+            },
+            "skills": {
+                "required": gemini_analysis.get("required_skills", []),
+                "demonstrated": gemini_analysis.get("demonstrated_skills", []),
+                "gaps": gemini_analysis.get("skill_gaps", [])
+            },
+            "assessment": {
+                "strengths": gemini_analysis.get("strengths", []),
+                "weaknesses": gemini_analysis.get("weaknesses", []),
+                "feedback": gemini_analysis.get("detailed_feedback", "")
+            },
+            "proctoring": {
+                "violations": len(proctor_events),
+                "events": proctor_events
+            },
+            "audio_analysis": audio_analysis,
+            "candidate_feedback": feedback,
+            "database_saved": database_saved
+        }
+        
+        print(f"\n{'='*80}")
+        print(f"✅ REPORT GENERATED SUCCESSFULLY")
+        print(f"{'='*80}\n")
+        
+        return {
+            "ok": True,
+            "session_id": session_id,
+            "application_id": application_id,
+            "report": comprehensive_report,
+            "database_saved": database_saved
+        }
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Final report generation failed: {str(e)}")
+        print(f"\n{'='*80}")
+        print(f"❌ ERROR: {str(e)}")
+        print(f"{'='*80}\n")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/check/{application_id}")
+async def check_interview_data(application_id: str):
+    """Check if interview data was saved"""
+    try:
+        report = get_interview_report(application_id)
+        
+        if report is None:
+            return {"ok": False, "saved": False, "message": "No data found"}
+        
+        return {
+            "ok": True,
+            "saved": report.get("interview_status") == "completed",
+            "rating": report.get("interview_rating"),
+            "score": report.get("overall_score"),
+            "eligibility": report.get("eligibility_status")
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

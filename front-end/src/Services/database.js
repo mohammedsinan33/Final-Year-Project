@@ -182,15 +182,25 @@ export async function saveJobSeekerPreferences(userId, prefs) {
 // --- Recruiter company profile (one-time) via token RPC
 
 export async function getRecruiterProfile(userId) {
-  // userId is unused in custom auth mode; kept for compatibility.
-  const token = getSessionToken();
-  if (!token) return null;
+  try {
+    const supabase = requireSupabase();
+    
+    const { data, error } = await supabase
+      .from("recruiter_profiles")
+      .select("*")
+      .eq("user_id", userId)
+      .single();
 
-  const { data, error } = await supabase.rpc("app_recruiter_profile_get", {
-    p_token: token,
-  });
-  if (error) throw error;
-  return data;
+    if (error) {
+      console.log("No recruiter profile found");
+      return null;
+    }
+    
+    return data;
+  } catch (error) {
+    console.error("Error fetching recruiter profile:", error);
+    return null;
+  }
 }
 
 export async function hasRecruiterProfile(userId) {
@@ -314,7 +324,7 @@ export async function listPublicJobOpenings() {
   // Fetch recruiter profile details (company info)
   const { data: profiles, error: profilesError } = await supabase
     .from("recruiter_profiles")
-    .select("user_id, company_name, industry, company_size, headquarters")
+    .select("user_id, company_name")
     .in("user_id", recruiterIds);
 
   if (profilesError || !profiles) {
@@ -595,3 +605,372 @@ export const submitProjectDetails = async (appId, projectData) => {
 
   return true;
 };
+
+// Get candidates for a specific job
+export async function getCandidatesForJob(jobId) {
+  try {
+    const supabase = requireSupabase();
+    
+    const { data, error } = await supabase
+      .from("job_applications")
+      .select(`
+        id,
+        candidate_id,
+        selected,
+        match_score,
+        match_summary,
+        project_alignment_score,
+        project_alignment_summary,
+
+        interview_rating,
+        interview_status,
+        interview_feedback,
+        overall_score,
+        technical_score,
+        communication_score,
+        integrity_score,
+        experience_match,
+        skills_match,
+        job_match_score,
+        eligibility_status,
+        eligibility_reasoning,
+        required_skills,
+        demonstrated_skills,
+        skill_gaps,
+        audio_analysis,
+        proctoring_violations,
+        key_skills,
+        experience,
+        education,
+        highlights,
+        description,
+        resume_report_status
+      `)
+      .eq("job_id", jobId)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    // Fetch user details separately for each candidate
+    const enrichedData = await Promise.all(
+      (data || []).map(async (app) => {
+        try {
+          const { data: user } = await supabase
+            .from("app_users")
+            .select("id, email, full_name")
+            .eq("id", app.candidate_id)
+            .single();
+
+          return {
+            id: app.id,
+            candidate_id: app.candidate_id,
+            application_id: app.id,
+            name: user?.full_name || "Candidate",
+            email: user?.email || "N/A",
+            phone: "N/A",
+            selected: app.selected,
+            skills: Array.isArray(app.key_skills) ? app.key_skills.join(", ") : (app.key_skills || "N/A"),
+            experience: Array.isArray(app.experience) ? app.experience : [],
+            education: Array.isArray(app.education) ? app.education : [],
+            highlights: Array.isArray(app.highlights) ? app.highlights : [],
+            description: app.description || "N/A",
+            // Resume screening
+            match_score: app.match_score,
+            match_summary: app.match_summary,
+            resume_report_status: app.resume_report_status,
+            // Project submission
+            project_alignment_score: app.project_alignment_score,
+            project_alignment_summary: app.project_alignment_summary,
+
+            // Interview
+            interview_rating: app.interview_rating,
+            interview_score: app.interview_rating, // for compatibility
+            interview_status: app.interview_status,
+            interview_feedback: app.interview_feedback,
+            audio_analysis: app.audio_analysis,
+            proctoring_violations: app.proctoring_violations,
+            // Scores
+            overall_score: app.overall_score,
+            technical_score: app.technical_score,
+            communication_score: app.communication_score,
+            integrity_score: app.integrity_score,
+            experience_match: app.experience_match,
+            skills_match: app.skills_match,
+            job_match_score: app.job_match_score,
+            // Eligibility & Skills
+            eligibility_status: app.eligibility_status,
+            eligibility_reasoning: app.eligibility_reasoning,
+            required_skills: Array.isArray(app.required_skills) ? app.required_skills : [],
+            demonstrated_skills: Array.isArray(app.demonstrated_skills) ? app.demonstrated_skills : [],
+            skill_gaps: Array.isArray(app.skill_gaps) ? app.skill_gaps : [],
+          };
+        } catch (err) {
+          console.error(`Error fetching user ${app.candidate_id}:`, err);
+          return {
+            id: app.id,
+            candidate_id: app.candidate_id,
+            application_id: app.id,
+            name: "Candidate",
+            email: "N/A",
+            phone: "N/A",
+            selected: app.selected,
+            skills: "N/A",
+            experience: [],
+            education: [],
+            highlights: [],
+            description: "N/A",
+            match_score: app.match_score,
+            match_summary: app.match_summary,
+            resume_report_status: app.resume_report_status,
+            project_alignment_score: app.project_alignment_score,
+            project_alignment_summary: app.project_alignment_summary,
+            interview_rating: app.interview_rating,
+            interview_score: app.interview_rating,
+            interview_status: app.interview_status,
+            interview_feedback: app.interview_feedback,
+            audio_analysis: app.audio_analysis,
+            proctoring_violations: app.proctoring_violations,
+            overall_score: app.overall_score,
+            technical_score: app.technical_score,
+            communication_score: app.communication_score,
+            integrity_score: app.integrity_score,
+            experience_match: app.experience_match,
+            skills_match: app.skills_match,
+            job_match_score: app.job_match_score,
+            eligibility_status: app.eligibility_status,
+            eligibility_reasoning: app.eligibility_reasoning,
+            required_skills: [],
+            demonstrated_skills: [],
+            skill_gaps: [],
+          };
+        }
+      })
+    );
+
+    return enrichedData;
+  } catch (error) {
+    console.error("Error fetching candidates:", error);
+    throw error;
+  }
+}
+
+// Send offer/selection email via backend
+export async function sendCandidateOfferEmail(applicationId, jobTitle, companyName) {
+  try {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+    
+    const response = await fetch(`${API_BASE_URL}/recruiter/send-offer-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        application_id: applicationId,
+        job_title: jobTitle,
+        company_name: companyName,
+      }),
+    });
+
+    if (!response.ok) {
+      const msg = await response.text();
+      throw new Error(msg || "Failed to send offer email");
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error sending offer email:", error);
+    throw error;
+  }
+}
+
+// Send rejection email via backend
+export async function sendCandidateRejectionEmail(applicationId, jobTitle, companyName) {
+  try {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+    
+    const response = await fetch(`${API_BASE_URL}/recruiter/send-rejection-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        application_id: applicationId,
+        job_title: jobTitle,
+        company_name: companyName,
+      }),
+    });
+
+    if (!response.ok) {
+      const msg = await response.text();
+      throw new Error(msg || "Failed to send rejection email");
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error sending rejection email:", error);
+    throw error;
+  }
+}
+
+// Update candidate status
+export async function updateCandidateStatus(applicationId, status) {
+  try {
+    const supabase = requireSupabase();
+    
+    const { error } = await supabase
+      .from("job_applications")
+      .update({ application_status: status, updated_at: new Date().toISOString() })
+      .eq("id", applicationId);
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error("Error updating candidate status:", error);
+    throw error;
+  }
+}
+
+// Update candidate selected status
+export async function updateCandidateSelectedStatus(applicationId, selected) {
+  try {
+    const supabase = requireSupabase();
+    
+    const { error } = await supabase
+      .from("job_applications")
+      .update({ selected: selected })
+      .eq("id", applicationId);
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error("Error updating selected status:", error);
+    throw error;
+  }
+}
+
+// Get candidate preferences from jobseeker_preferences table
+export async function getCandidatePreferences(userId) {
+  try {
+    const supabase = requireSupabase();
+    
+    const { data, error } = await supabase
+      .from("jobseeker_preferences")
+      .select("job_location, employment_type, min_base_pay")
+      .eq("user_id", userId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    
+    return data || {
+      job_location: "N/A",
+      employment_type: "N/A",
+      min_base_pay: 0
+    };
+  } catch (error) {
+    console.error("Error fetching candidate preferences:", error);
+    return {
+      job_location: "N/A",
+      employment_type: "N/A",
+      min_base_pay: 0
+    };
+  }
+}
+
+// Get selected candidates with personal details and preferences for a job
+export async function getSelectedCandidatesWithDetails(jobId) {
+  try {
+    const supabase = requireSupabase();
+    
+    // Step 1: Get only selected candidates for the job
+    const { data: selectedApps, error: appsError } = await supabase
+      .from("job_applications")
+      .select(`
+        id,
+        candidate_id,
+        selected,
+        match_score,
+        overall_score,
+        technical_score,
+        communication_score,
+        integrity_score,
+        eligibility_status
+      `)
+      .eq("job_id", jobId)
+      .eq("selected", true)
+      .order("overall_score", { ascending: false });
+
+    if (appsError) throw appsError;
+
+    if (!selectedApps || selectedApps.length === 0) {
+      return [];
+    }
+
+    // Step 2: Enrich with personal details and preferences
+    const enrichedData = await Promise.all(
+      selectedApps.map(async (app) => {
+        try {
+          // Get personal details from app_users
+          const { data: user } = await supabase
+            .from("app_users")
+            .select("id, email, full_name")
+            .eq("id", app.candidate_id)
+            .single();
+
+          // Get job preferences
+          const { data: preferences } = await supabase
+            .from("jobseeker_preferences")
+            .select("job_location, employment_type, min_base_pay")
+            .eq("user_id", app.candidate_id)
+            .single();
+
+          return {
+            // Application info
+            id: app.id,
+            candidate_id: app.candidate_id,
+            application_id: app.id,
+            selected: app.selected,
+            
+            // Personal details
+            name: user?.full_name || "Candidate",
+            email: user?.email || "N/A",
+            
+            // Scores
+            match_score: app.match_score || 0,
+            overall_score: app.overall_score || 0,
+            technical_score: app.technical_score || 0,
+            communication_score: app.communication_score || 0,
+            integrity_score: app.integrity_score || 0,
+            eligibility_status: app.eligibility_status || "N/A",
+            
+            // Job preferences
+            preferred_location: preferences?.job_location || "N/A",
+            employment_type: preferences?.employment_type || "N/A",
+            min_base_pay: preferences?.min_base_pay || 0,
+          };
+        } catch (err) {
+          console.error(`Error enriching candidate ${app.candidate_id}:`, err);
+          
+          // Return basic info even if enrichment fails
+          return {
+            id: app.id,
+            candidate_id: app.candidate_id,
+            application_id: app.id,
+            selected: app.selected,
+            name: "Candidate",
+            email: "N/A",
+            match_score: app.match_score || 0,
+            overall_score: app.overall_score || 0,
+            technical_score: app.technical_score || 0,
+            communication_score: app.communication_score || 0,
+            integrity_score: app.integrity_score || 0,
+            eligibility_status: app.eligibility_status || "N/A",
+            preferred_location: "N/A",
+            employment_type: "N/A",
+            min_base_pay: 0,
+          };
+        }
+      })
+    );
+
+    return enrichedData;
+  } catch (error) {
+    console.error("Error fetching selected candidates with details:", error);
+    throw error;
+  }
+}

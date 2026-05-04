@@ -1,10 +1,15 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, File, UploadFile, Form
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 import os
 import requests
 from dotenv import load_dotenv
 from app.schemas import SessionContextUpsertRequest, InterviewTurnIngestRequest
+import time
+import io
+import google.generativeai as genai
+import json
+import re
 
 load_dotenv()
 
@@ -274,6 +279,10 @@ Do not read the analysis out loud; use it to guide your questioning.
     # Update the agent's prompt via ElevenLabs API
     update_success = False
     try:
+        print(f"🔧 Attempting to update ElevenLabs agent...")
+        print(f"   Agent ID: {agent_id}")
+        print(f"   API Key present: {bool(api_key)}")
+        
         url = f"https://api.elevenlabs.io/v1/convai/agents/{agent_id}"
         headers = {
             "xi-api-key": api_key,
@@ -292,7 +301,9 @@ Do not read the analysis out loud; use it to guide your questioning.
             }
         }
         
+        print(f"📤 Sending PATCH request to: {url}")
         response = requests.patch(url, json=update_data, headers=headers, timeout=10)
+        print(f"📥 Response status: {response.status_code}")
         
         if response.status_code == 200:
             print(f"✅ Successfully updated agent {agent_id} with custom prompt")
@@ -330,3 +341,149 @@ async def save_interview_turn(payload: InterviewTurnIngestRequest):
 @router.get("/session/{session_id}")
 async def read_session_data(session_id: str):
     return get_session_data(session_id)
+
+class ReviewSubmission(BaseModel):
+    application_id: Optional[str] = None
+    session_id: str
+    rating: int
+    feedback: str
+
+@router.post("/submit-review")
+async def submit_interview_review(
+    application_id: Optional[str] = Form(None),
+    session_id: str = Form(...),
+    rating: int = Form(...),
+    feedback: str = Form(default=""),
+    audio: Optional[UploadFile] = File(None)
+):
+    """Capture interview data and generate final report."""
+    try:
+        print(f"\n{'='*80}")
+        print(f"📥 RECEIVED REVIEW SUBMISSION")
+        print(f"   Session ID: {session_id}")
+        print(f"   Application ID: {application_id}")
+        print(f"{'='*80}\n")
+        
+        session = _get_or_create_session(session_id)
+        
+        if not application_id:
+            raise HTTPException(status_code=400, detail="application_id is required")
+        
+        # Store basic review data
+        session["review"] = {
+            "timestamp": time.time(),
+            "rating": rating,
+            "feedback": feedback,
+            "application_id": application_id,
+            "has_audio": audio is not None and audio.size > 0
+        }
+        
+        # Store audio if provided
+        if audio and audio.size > 0:
+            try:
+                print(f"🎙️ Storing audio: {audio.filename} ({audio.size} bytes)")
+                audio_content = await audio.read()
+                session["audio_content"] = audio_content
+                session["audio_filename"] = audio.filename
+                print(f"✅ Audio stored in session")
+            except Exception as e:
+                print(f"⚠️ Error storing audio: {str(e)}")
+                session["audio_error"] = str(e)
+        
+        # Store proctoring summary
+        proctor_events = session.get("proctor_events", [])
+        session["proctor_summary"] = f"Total violations: {len(proctor_events)}"
+        
+        print(f"✅ Review data stored for session {session_id}")
+        print(f"   Transcript turns: {len(session.get('transcript', []))}")
+        print(f"   Proctor violations: {len(proctor_events)}")
+        
+        # ===== GENERATE FINAL REPORT =====
+        final_report = None
+        try:
+            print(f"\n{'='*80}")
+            print(f"📊 GENERATING FINAL REPORT")
+            print(f"   Session: {session_id}")
+            print(f"   Application: {application_id}")
+            print(f"{'='*80}\n")
+            
+            # Import dynamically to avoid circular imports
+            import importlib
+            finalreport_module = importlib.import_module("app.routes.finalreport")
+            generate_final_report = getattr(finalreport_module, "generate_final_report")
+            
+            from app.schemas import FinalReportRequest
+            
+            # Call the async function
+            report_response = await generate_final_report(
+                FinalReportRequest(
+                    session_id=session_id,
+                    application_id=application_id
+                )
+            )
+            
+            print(f"\n{'='*80}")
+            print(f"✅ REPORT GENERATION COMPLETE")
+            print(f"   Response type: {type(report_response)}")
+            if isinstance(report_response, dict):
+                print(f"   Response keys: {list(report_response.keys())}")
+            print(f"{'='*80}\n")
+            
+            # Extract the report
+            if report_response and isinstance(report_response, dict):
+                final_report = report_response.get("report")
+                if final_report:
+                    print(f"✅ Final report extracted: {type(final_report)}")
+                    print(f"   Report keys: {list(final_report.keys()) if isinstance(final_report, dict) else 'N/A'}")
+                else:
+                    print(f"❌ Report field is None or missing")
+                    final_report = {"error": "Report field missing from response"}
+            else:
+                print(f"❌ Response is not a dict: {type(report_response)}")
+                final_report = {"error": f"Unexpected response type: {type(report_response)}"}
+                
+        except Exception as e:
+            print(f"\n{'='*80}")
+            print(f"❌ REPORT GENERATION FAILED")
+            print(f"   Error: {str(e)}")
+            print(f"{'='*80}\n")
+            import traceback
+            traceback.print_exc()
+            
+            # Fallback report
+            final_report = {
+                "error": str(e),
+                "candidate_rating": rating,
+                "eligibility": {
+                    "status": "Pending Review",
+                    "recommendation": "Pending"
+                },
+                "message": "Report generation failed - manual review needed"
+            }
+        
+        # ===== RETURN RESPONSE WITH FINAL REPORT =====
+        response_payload = {
+            "ok": True,
+            "session_id": session_id,
+            "application_id": application_id,
+            "message": "Review submitted and report generated",
+            "proctor_violations": len(proctor_events),
+            "final_report": final_report
+        }
+        
+        print(f"\n{'='*80}")
+        print(f"📤 SENDING RESPONSE TO FRONTEND")
+        print(f"   Response keys: {list(response_payload.keys())}")
+        print(f"   Final report present: {response_payload['final_report'] is not None}")
+        print(f"{'='*80}\n")
+        
+        return response_payload
+        
+    except Exception as e:
+        print(f"\n{'='*80}")
+        print(f"❌ CRITICAL ERROR IN SUBMIT-REVIEW")
+        print(f"   Error: {str(e)}")
+        print(f"{'='*80}\n")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

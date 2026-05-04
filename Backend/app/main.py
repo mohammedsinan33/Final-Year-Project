@@ -4,6 +4,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from contextlib import asynccontextmanager
 import asyncio
 
+from app.routes import recruiter
 from app.routes.analyze import router as analyze_router
 from app.routes.proctor import router as proctor_router
 from app.routes.interview import router as interview_router
@@ -69,7 +70,7 @@ app = FastAPI(title="Continental AI", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,6 +81,7 @@ app.include_router(proctor_router, prefix="/proctor", tags=["proctor"])
 app.include_router(interview_router, prefix="/interview", tags=["interview"])
 app.include_router(finalreport_router, prefix="/final-report", tags=["final-report"])
 app.include_router(applications_router)
+app.include_router(recruiter.router)
 
 @app.get("/health")
 async def health():

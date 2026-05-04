@@ -465,6 +465,80 @@ def send_interview_link_email(candidate_email, job_title, company_name, intervie
         return False
 
 
+def send_offer_email(candidate_email, job_title, company_name):
+    """Send offer/selection email to candidate"""
+    try:
+        sender_email = os.getenv("SENDER_EMAIL", "your-email@gmail.com")
+        sender_password = os.getenv("EMAIL_PASSWORD", "")
+        
+        if not sender_password:
+            print("EMAIL_PASSWORD not configured")
+            return False
+        
+        subject = f"🎉 Job Offer - {job_title} at {company_name}"
+        
+        body = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #4CAF50;">🎉 Congratulations!</h2>
+                    
+                    <p>Dear Candidate,</p>
+                    
+                    <p>We are delighted to extend a formal offer of employment for the position of <strong>{job_title}</strong> at <strong>{company_name}</strong>.</p>
+                    
+                    <p>After a thorough review of your qualifications, experience, and interview performance, we believe you are an excellent fit for our team. We are impressed with your skills and enthusiasm.</p>
+                    
+                    <div style="background-color: #f0f8ff; padding: 20px; border-left: 4px solid #2196F3; margin: 20px 0; border-radius: 5px;">
+                        <h3 style="margin-top: 0; color: #2196F3;">Next Steps:</h3>
+                        <ol style="margin: 10px 0; padding-left: 20px;">
+                            <li>Review the attached offer letter carefully</li>
+                            <li>Contact our HR team to discuss any questions</li>
+                            <li>Sign and return the offer acceptance form within 7 days</li>
+                        </ol>
+                    </div>
+                    
+                    <p><strong>Position Details:</strong></p>
+                    <ul style="color: #555;">
+                        <li><strong>Job Title:</strong> {job_title}</li>
+                        <li><strong>Company:</strong> {company_name}</li>
+                        <li><strong>Employment Type:</strong> Full-time</li>
+                    </ul>
+                    
+                    <p>Our HR team will reach out to you shortly with further details regarding compensation, benefits, and onboarding information.</p>
+                    
+                    <p>If you have any questions, please don't hesitate to contact us.</p>
+                    
+                    <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+                    
+                    <p>We look forward to welcoming you to our team!</p>
+                    <p style="color: #666;">Best regards,<br><strong>{company_name}</strong> - Hiring Team</p>
+                    <p style="color: #999; font-size: 12px;">
+                        <strong>Note:</strong> This is an automated email. Please contact HR for any modifications to the offer.
+                    </p>
+                </div>
+            </body>
+        </html>
+        """
+        
+        message = MIMEMultipart("alternative")
+        message["Subject"] = subject
+        message["From"] = sender_email
+        message["To"] = candidate_email
+        message.attach(MIMEText(body, "html"))
+        
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, candidate_email, message.as_string())
+        
+        print(f"✓ Offer email sent to {candidate_email}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Offer email failed: {str(e)}")
+        return False
+
+
 async def send_all_pending_notifications():
     """Check DB and send all pending shortlist/rejection emails"""
     SUPABASE_URL = os.getenv("SUPABASE_URL")

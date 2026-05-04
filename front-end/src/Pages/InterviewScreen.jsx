@@ -10,6 +10,9 @@ const InterviewScreen = () => {
   const [searchParams] = useSearchParams();
   const cameraRef = useRef(null);
   const conversationRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const [recordedAudio, setRecordedAudio] = useState(null);
 
   const sessionIdRef = useRef(`sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
   const reportKeyRef = useRef(`proctorReport:${sessionIdRef.current}`);
@@ -33,6 +36,15 @@ const InterviewScreen = () => {
   }, []);
 
   const endInterview = async (reason = "") => {
+    // Stop recording
+    if (mediaRecorderRef.current) {
+      if (mediaRecorderRef.current.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+      mediaRecorderRef.current = null;
+    }
+
+    // Close ElevenLabs conversation
     if (conversationRef.current) {
       try {
         await conversationRef.current.endSession();
@@ -53,7 +65,6 @@ const InterviewScreen = () => {
     localStorage.setItem(reportKeyRef.current, JSON.stringify(finalAlerts));
     localStorage.setItem("lastProctorSessionId", sessionIdRef.current);
 
-    // Show review component instead of redirecting immediately
     setShowReview(true);
   };
 
@@ -66,21 +77,78 @@ const InterviewScreen = () => {
     try {
       const appId = searchParams.get("app_id");
       
-      // Send review to backend
-      await fetch(`${API_BASE_URL}/interview/submit-review`, {
+      const formData = new FormData();
+      formData.append("application_id", appId);
+      formData.append("session_id", sessionIdRef.current);
+      formData.append("rating", reviewData.rating);
+      formData.append("feedback", reviewData.feedback);
+      
+      if (recordedAudio) {
+        formData.append("audio", recordedAudio, "interview.webm");
+      }
+      
+      console.log("📤 Submitting review to backend...");
+      const response = await fetch(`${API_BASE_URL}/interview/submit-review`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          application_id: appId,
-          session_id: sessionIdRef.current,
-          rating: reviewData.rating,
-          feedback: reviewData.feedback,
-        })
-      }).catch(() => {
-        // Silently fail - still navigate anyway
+        body: formData
       });
+      
+      console.log("📥 Response status:", response.status);
+      
+      if (response.ok) {
+        const result = await response.json();
+        
+        // LOG THE FULL RESPONSE
+        console.log("✅ Review submitted successfully");
+        console.log("📋 Full response:", JSON.stringify(result, null, 2));
+        console.log("📋 Final Report object:", result.final_report);
+        console.log("📋 Final Report type:", typeof result.final_report);
+        
+        // Check if final_report exists
+        if (!result.final_report) {
+          console.warn("⚠️ final_report is:", result.final_report);
+          alert("❌ Report generation failed or returned empty");
+          navigate("/");
+          return;
+        }
+        
+        // Properly store the report as JSON
+        const reportJSON = JSON.stringify(result.final_report, null, 2);
+        localStorage.setItem("finalReport:" + sessionIdRef.current, reportJSON);
+        console.log("✅ Stored report to localStorage");
+        
+        // Display the report nicely
+        const eligibility = result.final_report?.eligibility?.status || "Unknown";
+        const recommendation = result.final_report?.eligibility?.recommendation || "Pending";
+        const overallScore = result.final_report?.scores?.overall || 0;
+        
+        const reportSummary = `
+Interview Report Generated!
+
+📊 Overall Score: ${overallScore}/100
+✅ Eligibility Status: ${eligibility}
+🎯 Recommendation: ${recommendation}
+
+Position: ${result.final_report?.position || "Unknown"}
+Date: ${result.final_report?.interview_date || "N/A"}
+
+Database Saved: ${result.final_report?.database_saved ? "Yes" : "No"}
+
+Click OK to continue to homepage.
+      `;
+      
+        alert(reportSummary);
+        
+      } else {
+        const error = await response.text();
+        console.error("❌ Submit review error:", error);
+        alert("Failed to submit review:\n" + error);
+      }
 
       navigate("/");
+    } catch (error) {
+      console.error("❌ Submit error:", error);
+      alert("Error submitting review:\n" + error.message);
     } finally {
       setIsSubmittingReview(false);
     }
@@ -145,10 +213,10 @@ const InterviewScreen = () => {
           throw new Error(`Backend Error (${response.status}): ${errorText}`);
         }
 
-        const { agent_id, context } = await response.json();
-        const agentId = context.agent_id;
-        const dynamicPrompt = context.prompt;
-        const backendSessionId = context.session_id;
+        const { agent_id, context, session_id } = await response.json();
+        const agentId = agent_id;           // ✅ Use top-level agent_id
+        const dynamicPrompt = context;      // ✅ Use top-level context (already the full prompt)
+        const backendSessionId = session_id; // ✅ Use top-level session_id
 
         if (!agentId || !dynamicPrompt || !isMounted) return;
 
@@ -166,60 +234,65 @@ const InterviewScreen = () => {
           await old.endSession().catch(() => {});
         }
 
-        const conversation = await Conversation.startSession({
-          agentId: agentId,
-          overrides: {
-            agent: {
-              prompt: {
-                prompt: dynamicPrompt + "\n\nPrompt-Nonce: " + Date.now()
-              },
-              firstMessage: "Hello, I am Sarah. Nice to meet you. Please introduce yourself briefly."
+        console.log("🔄 Starting ElevenLabs conversation...");
+        console.log("   Agent ID:", agentId);
+        console.log("   Prompt length:", dynamicPrompt.length);
+
+        try {
+          const conversation = await Conversation.startSession({
+            agentId: agentId,
+            onConnect: () => {
+              console.log("✅ ElevenLabs conversation connected!");
+              if (isMounted) {
+                setIsConnecting(false);
+                setIsInterviewActive(true);
+              }
+            },
+            onDisconnect: () => {
+              console.log("⚠️ ElevenLabs disconnected");
+              if (isMounted) setIsInterviewActive(false);
+            },
+            onMessage: (message) => {
+              if (!isMounted) return;
+
+              const roleRaw = (message?.source || message?.role || "").toLowerCase();
+              const text = (message?.message || "").trim();
+              if (!text) return;
+
+              const role =
+                roleRaw === "ai" || roleRaw === "assistant" ? "agent" : "candidate";
+
+              setTranscript((prev) => {
+                const next = [...prev, { role, text }];
+                localStorage.setItem("interviewTranscript:" + sessionIdRef.current, JSON.stringify(next));
+                return next;
+              });
+
+              fetch(API_BASE_URL + "/interview/session/turn", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  session_id: sessionIdRef.current,
+                  role,
+                  text
+                })
+              }).catch(() => {});
+            },
+            onError: (error) => {
+              console.error("❌ ElevenLabs ERROR:", error);
+              const errorStr = typeof error === "string" ? error : error?.message || "";
+              if (!errorStr.toLowerCase().includes("closing") && isMounted) {
+                alert("Interview error: " + errorStr);
+              }
             }
-          },
-          onConnect: () => {
-            if (isMounted) {
-              setIsConnecting(false);
-              setIsInterviewActive(true);
-            }
-          },
-          onDisconnect: () => {
-            if (isMounted) setIsInterviewActive(false);
-          },
-          onMessage: (message) => {
-            if (!isMounted) return;
+          });
 
-            const roleRaw = (message?.source || message?.role || "").toLowerCase();
-            const text = (message?.message || "").trim();
-            if (!text) return;
-
-            const role =
-              roleRaw === "ai" || roleRaw === "assistant" ? "agent" : "candidate";
-
-            setTranscript((prev) => {
-              const next = [...prev, { role, text }];
-              localStorage.setItem("interviewTranscript:" + sessionIdRef.current, JSON.stringify(next));
-              return next;
-            });
-
-            fetch(API_BASE_URL + "/interview/session/turn", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                session_id: sessionIdRef.current,
-                role,
-                text
-              })
-            }).catch(() => {});
-          },
-          onError: (error) => {
-            const errorStr = typeof error === "string" ? error : error?.message || "";
-            if (!errorStr.toLowerCase().includes("closing")) {
-              alert("Interview error: " + errorStr);
-            }
-          }
-        });
-
-        if (isMounted) conversationRef.current = conversation;
+          console.log("✅ Conversation session created successfully");
+          if (isMounted) conversationRef.current = conversation;
+        } catch (error) {
+          console.error("❌ Failed to start session:", error);
+          throw error;
+        }
       } catch (error) {
         if (isMounted) alert("Failed to start interview: " + error.message);
       }
@@ -250,8 +323,18 @@ const InterviewScreen = () => {
       localStorage.removeItem("screenShareChecked");
 
       try {
-        const camStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        if (cameraRef.current) cameraRef.current.srcObject = camStream;
+        const camStream = await navigator.mediaDevices.getUserMedia({ 
+          video: true, 
+          audio: true 
+        });
+        
+        if (cameraRef.current) {
+          cameraRef.current.srcObject = camStream;
+        }
+        
+        // Auto-start recording
+        startAudioRecording(camStream);
+        
       } catch {
         alert("Camera/Microphone access is MANDATORY");
       }
@@ -312,6 +395,86 @@ const InterviewScreen = () => {
 
     return () => clearInterval(interval);
   }, [hasStarted, showReview]);
+
+  const startAudioRecording = (stream) => {
+    try {
+      // Prevent double-starting
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        console.log("⚠️ Recording already in progress");
+        return;
+      }
+
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        console.warn("No audio tracks available for recording");
+        return;
+      }
+
+      const audioStream = new MediaStream(audioTracks);
+      const mediaRecorder = new MediaRecorder(audioStream);
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        setRecordedAudio(audioBlob);
+        audioChunksRef.current = []; // Reset for next recording
+        console.log("✅ Interview audio recorded:", audioBlob.size, "bytes");
+      };
+
+      mediaRecorder.start();
+      mediaRecorderRef.current = mediaRecorder;
+      console.log("🎙️ Audio recording started");
+    } catch (error) {
+      console.error("Failed to start audio recording:", error);
+    }
+  };
+
+  const startRecording = async () => {
+    if (!cameraRef.current || !cameraRef.current.srcObject) return;
+
+    try {
+      const stream = cameraRef.current.srcObject;
+      let mediaRecorder = mediaRecorderRef.current;  // ← Change const to let
+
+      if (!mediaRecorder) {
+        const options = { mimeType: "audio/webm" };
+        mediaRecorder = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorderRef.current = mediaRecorder;
+      }
+
+      mediaRecorder.start();
+
+      audioChunksRef.current = [];
+      setRecordedAudio(null);
+
+      console.log("Recording started...");
+    } catch (e) {
+      console.error("Failed to start recording:", e);
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!mediaRecorderRef.current) return;
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+
+    audioChunksRef.current = [];
+    setRecordedAudio(null);
+
+    console.log("Recording stopped...");
+  };
+
+  const handleRecordedAudio = async (audioBlob) => {
+    if (!audioBlob) return;
+    setRecordedAudio(audioBlob);
+  };
 
   if (showReview) {
     return (
@@ -385,6 +548,27 @@ const InterviewScreen = () => {
           >
             End Interview
           </button>
+        </div>
+      )}
+
+      <button
+        onClick={startRecording}
+        className="absolute bottom-4 left-4 bg-green-600 px-4 py-2 rounded text-white font-semibold hover:bg-green-700 cursor-pointer"
+      >
+        Start Recording
+      </button>
+
+      <button
+        onClick={stopRecording}
+        className="absolute bottom-4 right-4 bg-red-600 px-4 py-2 rounded text-white font-semibold hover:bg-red-700 cursor-pointer"
+      >
+        Stop Recording
+      </button>
+
+      {recordedAudio && (
+        <div className="absolute bottom-4 left-4 bg-blue-600/90 text-white p-3 rounded-lg max-w-xs">
+          <strong className="block text-sm">Recorded Audio</strong>
+          <span className="text-xs">{recordedAudio.size} bytes</span>
         </div>
       )}
 
