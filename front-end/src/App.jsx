@@ -1,7 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./Context/AuthContext";
 import ProtectedRoute from "./Components/ProtectedRoute";
-import AuthRedirect from "./Components/AuthRedirect";  // Add this import
+// ❌ REMOVE: import AuthRedirect from "./Components/AuthRedirect";
 import AnalyzerPage from "./Components/AnalyzerPage";
 import InterviewScreen from "./Pages/InterviewScreen";
 import InterviewTester from "./Pages/InterviewTester";
@@ -25,11 +25,11 @@ const App = () => {
       <Router>
         <Routes>
           <Route path="/" element={<Home />} />
-          {/* Wrap Signin/Signup with AuthRedirect */}
-          <Route path="/signin" element={<AuthRedirect><Signin /></AuthRedirect>} />
-          <Route path="/signup" element={<AuthRedirect><Signup /></AuthRedirect>} />
-
-          {/* Protected JobSeeker Routes */}
+          {/* ✅ REMOVED AuthRedirect wrapper */}
+          <Route path="/signin" element={<Signin />} />
+          <Route path="/signup" element={<Signup />} />
+          
+          {/* Protected routes remain the same */}
           <Route
             path="/jobseeker"
             element={
@@ -47,7 +47,6 @@ const App = () => {
             }
           />
 
-          {/* Protected Recruiter Routes */}
           <Route
             path="/recruiter"
             element={
@@ -65,7 +64,6 @@ const App = () => {
             }
           />
 
-          {/* Other Routes */}
           <Route path="/interview" element={<InterviewScreen />} />
           <Route path="/tester" element={<InterviewTester />} />
           <Route path="/interview-tester" element={<InterviewTester />} />

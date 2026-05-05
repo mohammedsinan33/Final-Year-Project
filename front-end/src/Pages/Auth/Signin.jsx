@@ -40,7 +40,7 @@ export default function Signin() {
             </div>
           </div>
           <h1 className="text-3xl font-black text-gray-900">Welcome Back</h1>
-          <p className="text-gray-600 mt-2">Sign in to your AI Recruiter Pro account</p>
+          <p className="text-gray-600 mt-2">Sign in to your Continental AI account</p>
         </div>
 
         {/* Error Alert */}

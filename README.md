@@ -1,8 +1,8 @@
-# AI Recruiter Pro - Final Year Project
+# Continental AI - Final Year Project
 
 ## 📋 Overview
 
-AI Recruiter Pro is an intelligent recruitment platform that combines AI-powered resume analysis, automated interview scheduling, proctored testing, and project-based candidate evaluation. The system is designed to streamline the hiring process for recruiters and provide candidates with a seamless application experience.
+Continental AI is an intelligent recruitment platform that combines AI-powered resume analysis, automated interview scheduling, proctored testing, and project-based candidate evaluation. The system is designed to streamline the hiring process for recruiters and provide candidates with a seamless application experience.
 
 ## 🎯 Key Features
 
@@ -319,6 +319,7 @@ npm run build
 
 ## 📞 Development
 
+**Project**: Continental AI - Intelligent Recruitment Platform
 **Team**: Final Year Project
 **Date**: May 2026
 **Status**: Complete

@@ -1,6 +1,6 @@
-# AI Recruiter Pro - Backend
+# Continental AI - Backend
 
-FastAPI-based backend for the AI Recruiter Pro recruitment platform.
+FastAPI-based backend for the Continental AI recruitment platform.
 
 ## 🚀 Quick Start
 
@@ -382,3 +382,6 @@ For issues:
 5. Check Supabase console
 
 ---
+
+**Project**: Continental AI
+**Last Updated**: May 2026

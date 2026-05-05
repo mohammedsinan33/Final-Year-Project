@@ -25,7 +25,7 @@ export default function RecruiterNavbar({ displayName }) {
             onClick={() => {
               (async () => {
                 await logout();
-                nav("/signin", { replace: true });
+                nav("/", { replace: true }); // ✅ Go to home
               })();
             }}
             className="flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg font-semibold transition"

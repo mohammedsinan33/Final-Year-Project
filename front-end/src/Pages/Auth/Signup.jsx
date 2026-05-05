@@ -46,7 +46,7 @@ export default function Signup() {
             </div>
           </div>
           <h1 className="text-3xl font-black text-gray-900">Create Account</h1>
-          <p className="text-gray-600 mt-2">Join AI Recruiter Pro today</p>
+          <p className="text-gray-600 mt-2">Join Continental AI today</p>
         </div>
 
         {/* Error Alert */}

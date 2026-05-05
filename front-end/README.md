@@ -1,6 +1,6 @@
-# AI Recruiter Pro - Frontend
+# Continental AI - Frontend
 
-React + Vite frontend for the AI Recruiter Pro recruitment platform.
+React + Vite frontend for the Continental AI recruitment platform.
 
 ## 🚀 Quick Start
 
@@ -665,5 +665,6 @@ For issues:
 
 ---
 
+**Project**: Continental AI - Intelligent Recruitment Platform
 **Last Updated**: May 2026
 **Version**: 1.0

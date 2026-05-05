@@ -344,7 +344,7 @@ export default function JobSeekerLanding() {
             <div className="bg-gradient-to-br from-emerald-600 to-teal-600 p-2 rounded-lg">
               <Briefcase size={24} className="text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-emerald-700">AI Recruiter</h1>
+            <h1 className="text-2xl font-bold text-emerald-700">Continental AI</h1>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-gray-700 font-medium">Welcome, <span className="text-emerald-600">{displayName}</span></span>
@@ -352,7 +352,7 @@ export default function JobSeekerLanding() {
               onClick={() => {
                 (async () => {
                   await logout();
-                  nav("/signin", { replace: true });
+                  nav("/", { replace: true }); // ✅ Go to home
                 })();
               }}
               className="flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg font-semibold transition"
@@ -379,8 +379,8 @@ export default function JobSeekerLanding() {
               type="text"
               value={roleQuery}
               onChange={(e) => setRoleQuery(e.target.value)}
-              placeholder="Search jobs by role (e.g., Frontend Developer, Data Scientist)..."
-              className="w-full pl-12 pr-6 py-4 rounded-xl border-2 border-emerald-200 bg-white text-gray-900 outline-none transition-all focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
+              placeholder="Search jobs by role (e.g., Frontend Developer, Data Scientist)...
+              className="w-full pl-12 pr-6 py-4 rounded-xl border-2 border-emerald-200 bg-white text-gray-900 outline-none transition-all focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200
             />
           </div>
         </div>
