@@ -1,4 +1,6 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../Context/AuthContext';
 import Navbar from '../Components/Home/Navbar';
 import HeroSection from '../Components/Home/HeroSection';
 import FeaturesSection from '../Components/Home/FeaturesSection';
@@ -8,6 +10,28 @@ import CTASection from '../Components/Home/CTASection';
 import Footer from '../Components/Home/Footer';
 
 export default function HomePage() {
+  const navigate = useNavigate();
+  const { isAuthenticated, user, loading } = useAuth();
+
+  // Redirect if already authenticated
+  React.useEffect(() => {
+    if (!loading && isAuthenticated && user) {
+      navigate(
+        user.role === 'recruiter' ? '/recruiter' : '/jobseeker',
+        { replace: true }
+      );
+    }
+  }, [isAuthenticated, user, loading, navigate]);
+
+  // Show loading while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-sm opacity-80">Loading…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-gradient-to-br from-white via-green-50 to-emerald-50 min-h-screen overflow-hidden">
       <Navbar />

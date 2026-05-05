@@ -568,21 +568,7 @@ Click OK to continue to homepage.
           </button>
         </div>
       )}
-
-      <button
-        onClick={startRecording}
-        className="absolute bottom-4 left-4 bg-green-600 px-4 py-2 rounded text-white font-semibold hover:bg-green-700 cursor-pointer"
-      >
-        Start Recording
-      </button>
-
-      <button
-        onClick={stopRecording}
-        className="absolute bottom-4 right-4 bg-red-600 px-4 py-2 rounded text-white font-semibold hover:bg-red-700 cursor-pointer"
-      >
-        Stop Recording
-      </button>
-
+      
       {recordedAudio && (
         <div className="absolute bottom-4 left-4 bg-blue-600/90 text-white p-3 rounded-lg max-w-xs">
           <strong className="block text-sm">Recorded Audio</strong>

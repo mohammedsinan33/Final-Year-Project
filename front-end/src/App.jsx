@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./Context/AuthContext";
 import ProtectedRoute from "./Components/ProtectedRoute";
+import AuthRedirect from "./Components/AuthRedirect";  // Add this import
 import AnalyzerPage from "./Components/AnalyzerPage";
 import InterviewScreen from "./Pages/InterviewScreen";
 import InterviewTester from "./Pages/InterviewTester";
@@ -24,8 +25,9 @@ const App = () => {
       <Router>
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/signin" element={<Signin />} />
-          <Route path="/signup" element={<Signup />} />
+          {/* Wrap Signin/Signup with AuthRedirect */}
+          <Route path="/signin" element={<AuthRedirect><Signin /></AuthRedirect>} />
+          <Route path="/signup" element={<AuthRedirect><Signup /></AuthRedirect>} />
 
           {/* Protected JobSeeker Routes */}
           <Route

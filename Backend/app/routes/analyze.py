@@ -6,6 +6,7 @@ from app.utils.resume import extract_resume_text
 from app.llm_client import analyze_source_with_llm, analyze_resume_with_llm
 import tempfile
 import traceback
+import json
 
 router = APIRouter()
 
@@ -30,6 +31,11 @@ async def analyze_repo(payload: AnalyzeRequest):
                 combined_source, 
                 project_desc=payload.project_desc
             )
+            print("\n" + "="*80)
+            print("📊 ANALYZED REPO RESULT:")
+            print("="*80)
+            print(json.dumps(result, indent=2))
+            print("="*80 + "\n")
             return result
         except Exception as e:
             print(f"LLM Error: {e}")
